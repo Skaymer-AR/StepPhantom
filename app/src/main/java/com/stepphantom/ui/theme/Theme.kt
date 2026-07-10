@@ -7,22 +7,10 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val Purple = Color(0xFF7C4DFF)
-private val PurpleDark = Color(0xFFB388FF)
-private val Teal = Color(0xFF00BFA5)
-
-private val DarkColors = darkColorScheme(
-    primary = PurpleDark,
-    secondary = Teal,
-)
-
-private val LightColors = lightColorScheme(
-    primary = Purple,
-    secondary = Teal,
-)
+private val Dark = darkColorScheme(primary = Color(0xFFB388FF), secondary = Color(0xFF00BFA5))
+private val Light = lightColorScheme(primary = Color(0xFF6A3DE8), secondary = Color(0xFF00897B))
 
 @Composable
 fun StepPhantomTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) DarkColors else LightColors
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) Dark else Light, content = content)
 }

@@ -7,57 +7,46 @@ import android.hardware.SensorManager
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
-import com.stepphantom.config.ModuleConfig
-import com.stepphantom.engine.StepSimulationEngine
+import com.stepphantom.config.PackageConfig
+import com.stepphantom.config.TransformMode
+import com.stepphantom.engine.StepTransformationEngine
 import de.robv.android.xposed.XposedBridge
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Envuelve al SensorEventListener original de la app objetivo.
+ * Envuelve el SensorEventListener original.
  *
- * Dos estrategias distintas según el sensor, porque la física del problema
- * es distinta:
+ * TYPE_STEP_COUNTER: transforma event.values[0] EN EL LUGAR (una sola vez) según
+ *   la config del paquete y lo delega. Para REEMPLAZAR/RITMO_SIMULADO además
+ *   corre un scheduler que EMPUJA valores aunque no haya pasos reales (si estás
+ *   quieto, el sensor real no dispara). Empujar requiere fabricar SensorEvent
+ *   (experimental, ver SensorEventFactory).
  *
- *  - ACELERÓMETRO / GIROSCOPIO: el sensor real dispara CONTINUAMENTE mientras
- *    está registrado, así que interceptamos cada evento real y MODIFICAMOS
- *    event.values[] in situ antes de reenviarlo. No hace falta fabricar eventos.
- *    (El SensorEvent que recibe cada listener sale de una cola propia por
- *    listener en SystemSensorManager, así que mutarlo no contamina a otras apps.)
+ * TYPE_STEP_DETECTOR: deja pasar los eventos reales; en RITMO_SIMULADO emite
+ *   además eventos discretos 1.0f a la cadencia configurada.
  *
- *  - STEP_COUNTER / STEP_DETECTOR: si el usuario está quieto, el sensor real
- *    NO dispara nunca. No hay evento que modificar. Por eso acá NO alcanza con
- *    envolver: montamos un scheduler propio que FABRICA eventos a la cadencia
- *    configurada y se los entrega al listener original. Fabricar un SensorEvent
- *    es la parte experimental (ver SensorEventFactory).
+ * Acelerómetro/giroscopio: experimentales, sólo si el paquete los habilita;
+ *   si no, passthrough intacto.
  */
 class SensorListenerWrapper(
     private val original: SensorEventListener,
-    private val engine: StepSimulationEngine,
-    private val configProvider: () -> ModuleConfig
+    private val engine: StepTransformationEngine,
+    private val pkg: String,
+    private val cfgProvider: () -> PackageConfig?,
+    private val onCounterObserved: (real: Long, fake: Long) -> Unit
 ) : SensorEventListener {
 
-    // Sensores actualmente "vivos" para este listener (para refcount y limpieza).
     private val liveSensors = ConcurrentHashMap.newKeySet<Int>()
-
-    // Handler que la app pasó al registrar, por tipo de sensor (puede ser null).
     private val handlersByType = ConcurrentHashMap<Int, Handler>()
-
-    // Tipos que estamos generando sintéticamente (counter/detector).
     private val synthActive = ConcurrentHashMap.newKeySet<Int>()
-
-    // Cache de un evento real por tipo, como plan B para fabricar eventos.
     private val seedEvents = ConcurrentHashMap<Int, SensorEvent>()
 
-    private val schedulerThread: HandlerThread by lazy {
-        HandlerThread("StepPhantom-sim").also { it.start() }
-    }
-    private val scheduler: Handler by lazy { Handler(schedulerThread.looper) }
+    private val thread: HandlerThread by lazy { HandlerThread("StepPhantom-sim").also { it.start() } }
+    private val scheduler: Handler by lazy { Handler(thread.looper) }
 
     val isEmpty: Boolean get() = liveSensors.isEmpty()
 
-    // ---------------------------------------------------------------------
-    // Registro / desregistro (llamado por SensorHook)
-    // ---------------------------------------------------------------------
+    // -------------------- registro / desregistro --------------------
 
     fun onRegistered(sensor: Sensor, handler: Handler?) {
         val type = sensor.type
@@ -75,45 +64,48 @@ class SensorListenerWrapper(
     }
 
     fun stopAll() {
-        liveSensors.clear()
-        synthActive.clear()
-        handlersByType.clear()
+        liveSensors.clear(); synthActive.clear(); handlersByType.clear()
         runCatching { scheduler.removeCallbacksAndMessages(null) }
-        runCatching { schedulerThread.quitSafely() }
+        runCatching { thread.quitSafely() }
     }
 
-    // ---------------------------------------------------------------------
-    // Eventos reales entrantes
-    // ---------------------------------------------------------------------
+    // -------------------- eventos reales --------------------
 
     override fun onSensorChanged(event: SensorEvent) {
         try {
-            val cfg = configProvider()
-            val type = event.sensor.type
-            seedEvents.putIfAbsent(type, event) // seed para plan B
-
-            when (type) {
-                Sensor.TYPE_STEP_COUNTER ->
-                    if (cfg.simStepCounter) return else original.onSensorChanged(event)
-
-                Sensor.TYPE_STEP_DETECTOR ->
-                    if (cfg.simStepDetector) return else original.onSensorChanged(event)
-
+            val cfg = cfgProvider()
+            if (cfg == null || !cfg.enabled || !cfg.hookSensorManager) {
+                original.onSensorChanged(event); return
+            }
+            when (event.sensor.type) {
+                Sensor.TYPE_STEP_COUNTER -> {
+                    seedEvents.putIfAbsent(Sensor.TYPE_STEP_COUNTER, event)
+                    if (cfg.mode == TransformMode.ORIGINAL) {
+                        original.onSensorChanged(event)
+                    } else {
+                        val real = event.values[0].toLong()
+                        val fake = engine.transformCounter(pkg, cfg, real)
+                        event.values[0] = fake.toFloat()
+                        onCounterObserved(real, fake)
+                        original.onSensorChanged(event)
+                    }
+                }
+                Sensor.TYPE_STEP_DETECTOR -> {
+                    seedEvents.putIfAbsent(Sensor.TYPE_STEP_DETECTOR, event)
+                    original.onSensorChanged(event)
+                }
                 Sensor.TYPE_ACCELEROMETER -> {
-                    if (cfg.simAccelerometer) engine.fillAccelerometer(event.values)
+                    if (cfg.simAccelerometer) engine.fillAccelerometer(pkg, cfg, event.values)
                     original.onSensorChanged(event)
                 }
-
                 Sensor.TYPE_GYROSCOPE -> {
-                    if (cfg.simGyroscope) engine.fillGyroscope(event.values)
+                    if (cfg.simGyroscope) engine.fillGyroscope(pkg, cfg, event.values)
                     original.onSensorChanged(event)
                 }
-
                 else -> original.onSensorChanged(event)
             }
         } catch (t: Throwable) {
-            // Nunca crashear la app objetivo por culpa del hook.
-            XposedBridge.log("[StepPhantom] onSensorChanged error: $t")
+            XposedBridge.log("[StepPhantom] onSensorChanged error ($pkg): $t")
             runCatching { original.onSensorChanged(event) }
         }
     }
@@ -122,52 +114,63 @@ class SensorListenerWrapper(
         runCatching { original.onAccuracyChanged(sensor, accuracy) }
     }
 
-    // ---------------------------------------------------------------------
-    // Generación sintética (counter / detector)
-    // ---------------------------------------------------------------------
+    // -------------------- generación sintética --------------------
 
     private fun startSynthetic(sensor: Sensor) {
-        val type = sensor.type
-        if (!synthActive.add(type)) return // ya corriendo
+        if (!synthActive.add(sensor.type)) return
         scheduleNext(sensor)
     }
 
     private fun scheduleNext(sensor: Sensor) {
         val type = sensor.type
         if (!synthActive.contains(type)) return
+        val cfg = cfgProvider()
         val delay = when (type) {
-            Sensor.TYPE_STEP_COUNTER -> 1000L                       // ~1 Hz basta para un contador
-            Sensor.TYPE_STEP_DETECTOR -> engine.stepDetectorIntervalMs()
+            Sensor.TYPE_STEP_COUNTER -> 1000L
+            Sensor.TYPE_STEP_DETECTOR ->
+                if (cfg != null) engine.detectorIntervalMs(cfg) else 1000L
             else -> return
         }.coerceIn(50L, 60_000L)
 
         scheduler.postDelayed({
-            deliver(sensor)
+            deliverSynthetic(sensor)
             scheduleNext(sensor)
         }, delay)
     }
 
-    private fun deliver(sensor: Sensor) {
+    private fun deliverSynthetic(sensor: Sensor) {
         try {
-            val value = when (sensor.type) {
-                Sensor.TYPE_STEP_COUNTER -> engine.currentStepCount().toFloat()
-                Sensor.TYPE_STEP_DETECTOR -> 1.0f
-                else -> return
+            val cfg = cfgProvider() ?: return
+            if (!cfg.enabled || !cfg.hookSensorManager) return
+
+            when (sensor.type) {
+                Sensor.TYPE_STEP_COUNTER -> {
+                    if (!engine.needsScheduler(cfg)) return   // otros modos usan eventos reales
+                    val fake = engine.syntheticCounter(pkg, cfg)
+                    pushEvent(sensor, fake.toFloat())
+                    onCounterObserved(-1L, fake)              // -1 = sin valor real (empuje)
+                }
+                Sensor.TYPE_STEP_DETECTOR -> {
+                    if (cfg.mode != TransformMode.RITMO_SIMULADO || cfg.paused) return
+                    pushEvent(sensor, 1.0f)
+                }
             }
-            val ev = buildEvent(sensor, value) ?: return
-            val h = handlersByType[sensor.type]
-            if (h != null) h.post { safeDeliver(ev) } else safeDeliver(ev)
         } catch (t: Throwable) {
-            XposedBridge.log("[StepPhantom] deliver error: $t")
+            XposedBridge.log("[StepPhantom] deliverSynthetic error ($pkg): $t")
         }
+    }
+
+    private fun pushEvent(sensor: Sensor, value0: Float) {
+        val ev = buildEvent(sensor, value0) ?: return
+        val h = handlersByType[sensor.type]
+        if (h != null) h.post { safeDeliver(ev) } else safeDeliver(ev)
     }
 
     private fun safeDeliver(ev: SensorEvent) {
         runCatching { original.onSensorChanged(ev) }
-            .onFailure { XposedBridge.log("[StepPhantom] listener lanzó: $it") }
+            .onFailure { XposedBridge.log("[StepPhantom] listener lanzó ($pkg): $it") }
     }
 
-    /** Fabrica (o reutiliza) un SensorEvent. Ver notas de riesgo en SensorEventFactory. */
     private fun buildEvent(sensor: Sensor, value0: Float): SensorEvent? {
         SensorEventFactory.tryCreate(1)?.let { fresh ->
             fresh.values[0] = value0
@@ -176,7 +179,6 @@ class SensorListenerWrapper(
             fresh.timestamp = SystemClock.elapsedRealtimeNanos()
             return fresh
         }
-        // Plan B: reutilizar un evento real cacheado del mismo tipo (si alguno llegó).
         seedEvents[sensor.type]?.let { seed ->
             return runCatching {
                 seed.values[0] = value0

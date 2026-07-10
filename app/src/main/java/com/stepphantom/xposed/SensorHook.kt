@@ -1,82 +1,96 @@
 package com.stepphantom.xposed
 
-import android.app.AndroidAppHelper
+import de.robv.android.xposed.AndroidAppHelper
+import android.content.ContentValues
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEventListener
+import android.os.Build
 import android.os.Handler
 import android.os.SystemClock
+import com.stepphantom.config.ConfigProvider
+import com.stepphantom.config.DiagnosticsProvider
 import com.stepphantom.config.HookConfigSource
-import com.stepphantom.config.ModuleConfig
-import com.stepphantom.engine.StepSimulationEngine
+import com.stepphantom.config.PackageConfig
+import com.stepphantom.config.StepPhantomConfig
+import com.stepphantom.engine.StepTransformationEngine
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam
-import java.util.concurrent.ConcurrentHashMap
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 
 /**
- * Punto de entrada del módulo (API clásica de Xposed, compatible con LSPosed
- * y con Vector — ver README para el porqué de esta elección de API).
+ * Entry point del módulo (API clásica Xposed 82, compatible con LSPosed y Vector).
+ * Declarado en assets/xposed_init como com.stepphantom.xposed.SensorHook.
  *
- * Declarado en assets/xposed_init como:
- *     com.stepphantom.xposed.SensorHook
- *
- * Instala los hooks SIEMPRE que el módulo se carga en un proceso (el filtrado
- * fino por paquete lo hacemos en tiempo de ejecución, cuando ya tenemos Context;
- * en handleLoadPackage todavía no lo tenemos con garantías). El scope grueso lo
- * define LSPosed/Vector (qué apps inyectar); el scope fino lo define la config.
+ * Capa 3, Ruta A (SensorManager). Las rutas de Health Connect NO se reescriben en
+ * esta versión: RouteDetector sólo informa qué vía usa cada app.
  */
 class SensorHook : IXposedHookLoadPackage {
 
     private val TAG = "[StepPhantom]"
+    private val KILL_SWITCH = "/data/local/tmp/stepphantom_disable"
     private val SUPPORTED = setOf(
-        Sensor.TYPE_STEP_COUNTER,
-        Sensor.TYPE_STEP_DETECTOR,
-        Sensor.TYPE_ACCELEROMETER,
-        Sensor.TYPE_GYROSCOPE
+        Sensor.TYPE_STEP_COUNTER, Sensor.TYPE_STEP_DETECTOR,
+        Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_GYROSCOPE
     )
 
-    // Mapa listener original -> wrapper, por proceso.
-    private val wrappers = ConcurrentHashMap<SensorEventListener, SensorListenerWrapper>()
+    private val engine = StepTransformationEngine()
+    private val registry = ListenerRegistry()
 
-    // Config cacheada con TTL para no consultar el provider en cada registro.
-    @Volatile private var cachedConfig = ModuleConfig()
+    @Volatile private var cachedConfig = StepPhantomConfig()
     @Volatile private var lastLoadMs = 0L
     @Volatile private var loadedOnce = false
     private val CONFIG_TTL_MS = 3000L
 
-    // Un motor compartido por proceso (todos los listeners ven el mismo contador).
-    @Volatile private var engine: StepSimulationEngine? = null
-    @Volatile private var lastResetToken = Long.MIN_VALUE
+    @Volatile private var route: RouteDetector.Result? = null
+    @Volatile private var lastDiagPushMs = 0L
+    private val DIAG_TTL_MS = 2000L
+    @Volatile private var lastSensorLabel = "-"
+    @Volatile private var lastReal = -1L
+    @Volatile private var lastFake = -1L
+    @Volatile private var lastError = ""
 
     override fun handleLoadPackage(lpparam: LoadPackageParam) {
+        // Kill switch de emergencia por archivo.
+        if (killSwitchPresent()) {
+            XposedBridge.log("$TAG Desactivado por kill switch ($KILL_SWITCH) en ${lpparam.packageName}")
+            return
+        }
         try {
+            route = RouteDetector.detect(lpparam.classLoader)
+            XposedBridge.log("$TAG ${lpparam.packageName} -> ${route?.primaryRouteLabel()}")
             installSensorHooks(lpparam)
+            // Empujar diagnóstico inicial (best-effort; puede no haber Context aún).
+            runCatching { pushDiag(extractContext(null), lpparam.packageName, force = true) }
         } catch (t: Throwable) {
-            XposedBridge.log("$TAG No se pudieron instalar hooks en ${lpparam.packageName}: $t")
+            lastError = t.toString()
+            XposedBridge.log("$TAG Fallo instalando hooks en ${lpparam.packageName}: $t")
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Instalación de hooks
-    // ---------------------------------------------------------------------
+    private fun killSwitchPresent(): Boolean = runCatching { File(KILL_SWITCH).exists() }.getOrDefault(false)
+
+    // ------------------------------------------------------------------
+    // Hooks de SensorManager
+    // ------------------------------------------------------------------
 
     private fun installSensorHooks(lpparam: LoadPackageParam) {
-        val cl = lpparam.classLoader
         val cls = "android.hardware.SensorManager"
+        val cl = lpparam.classLoader
+        val I = Integer.TYPE
 
         val onRegister = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) = beforeRegister(param, lpparam)
         }
         val onUnregister = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) = beforeUnregister(param, lpparam)
+            override fun beforeHookedMethod(param: MethodHookParam) = beforeUnregister(param)
         }
 
-        val I = Int::class.javaPrimitiveType!!
-
-        // --- registerListener overloads públicos (Android 16) ---
         hook(cls, cl, "registerListener", onRegister,
             SensorEventListener::class.java, Sensor::class.java, I)
         hook(cls, cl, "registerListener", onRegister,
@@ -86,22 +100,16 @@ class SensorHook : IXposedHookLoadPackage {
         hook(cls, cl, "registerListener", onRegister,
             SensorEventListener::class.java, Sensor::class.java, I, I, Handler::class.java)
 
-        // --- unregisterListener overloads públicos ---
-        hook(cls, cl, "unregisterListener", onUnregister,
-            SensorEventListener::class.java)
+        hook(cls, cl, "unregisterListener", onUnregister, SensorEventListener::class.java)
         hook(cls, cl, "unregisterListener", onUnregister,
             SensorEventListener::class.java, Sensor::class.java)
 
-        XposedBridge.log("$TAG Hooks instalados en ${lpparam.packageName}")
+        XposedBridge.log("$TAG Hooks de SensorManager instalados en ${lpparam.packageName}")
     }
 
-    /** Hookea una firma concreta; si no existe en esta ROM/versión, lo loguea y sigue. */
     private fun hook(
-        className: String,
-        cl: ClassLoader,
-        method: String,
-        callback: XC_MethodHook,
-        vararg paramTypes: Any
+        className: String, cl: ClassLoader, method: String,
+        callback: XC_MethodHook, vararg paramTypes: Any
     ) {
         try {
             val args = arrayOfNulls<Any>(paramTypes.size + 1)
@@ -109,100 +117,85 @@ class SensorHook : IXposedHookLoadPackage {
             args[paramTypes.size] = callback
             XposedHelpers.findAndHookMethod(className, cl, method, *args)
         } catch (e: NoSuchMethodError) {
-            XposedBridge.log("$TAG Overload ausente ($method / ${paramTypes.size} args) — se ignora")
+            XposedBridge.log("$TAG Overload ausente ($method/${paramTypes.size}); se ignora")
         } catch (t: Throwable) {
             XposedBridge.log("$TAG Error hookeando $method: $t")
         }
     }
 
-    // ---------------------------------------------------------------------
+    // ------------------------------------------------------------------
     // Callbacks
-    // ---------------------------------------------------------------------
+    // ------------------------------------------------------------------
 
     private fun beforeRegister(param: XC_MethodHook.MethodHookParam, lpparam: LoadPackageParam) {
         try {
             val ctx = extractContext(param.thisObject)
-            val cfg = currentConfig(ctx)
-
-            if (!cfg.moduleEnabled) return
-            if (cfg.targetPackages.isNotEmpty() && lpparam.packageName !in cfg.targetPackages) return
+            val cfg = currentConfig(ctx).forPackage(lpparam.packageName) ?: return
+            if (!cfg.enabled || !cfg.hookSensorManager) return
 
             val listener = param.args.getOrNull(0) as? SensorEventListener ?: return
-            if (listener is SensorListenerWrapper) return // ya es nuestro (delegación interna)
+            if (registry.isWrapper(listener)) return
             val sensor = param.args.getOrNull(1) as? Sensor ?: return
-            val type = sensor.type
-            if (type !in SUPPORTED) return
-            if (!shouldSimulate(cfg, type)) return
+            if (sensor.type !in SUPPORTED) return
 
             val handler = param.args.firstOrNull { it is Handler } as? Handler
-            val eng = engineFor(cfg)
-
-            val wrapper = wrappers.getOrPut(listener) {
-                SensorListenerWrapper(listener, eng, { currentConfig(extractContext(param.thisObject)) })
+            val pkg = lpparam.packageName
+            val wrapper = registry.getOrCreate(listener) {
+                SensorListenerWrapper(
+                    original = listener,
+                    engine = engine,
+                    pkg = pkg,
+                    cfgProvider = { currentConfig(extractContext(param.thisObject)).forPackage(pkg) },
+                    onCounterObserved = { real, fake ->
+                        lastReal = real; lastFake = fake
+                        lastSensorLabel = "STEP_COUNTER"
+                        pushDiag(ctx, pkg, force = false)
+                    }
+                )
             }
             wrapper.onRegistered(sensor, handler)
-
-            // Sustituir el listener por nuestro wrapper: el sistema registra el wrapper.
             param.args[0] = wrapper
-            XposedBridge.log("$TAG Envuelto ${lpparam.packageName} sensor=${sensorName(type)}")
+            if (sensor.type == Sensor.TYPE_STEP_DETECTOR) lastSensorLabel = "STEP_DETECTOR"
+            XposedBridge.log("$TAG Envuelto $pkg sensor=${sensorName(sensor.type)}")
         } catch (t: Throwable) {
-            XposedBridge.log("$TAG beforeRegister error: $t") // no romper el registro real
+            lastError = t.toString()
+            XposedBridge.log("$TAG beforeRegister error: $t")
         }
     }
 
-    private fun beforeUnregister(param: XC_MethodHook.MethodHookParam, lpparam: LoadPackageParam) {
+    private fun beforeUnregister(param: XC_MethodHook.MethodHookParam) {
         try {
             val listener = param.args.getOrNull(0) as? SensorEventListener ?: return
-            if (listener is SensorListenerWrapper) return
-            val wrapper = wrappers[listener] ?: return
-
-            // El sistema registró el wrapper, así que hay que desregistrar el wrapper.
+            if (registry.isWrapper(listener)) return
+            val wrapper = registry.get(listener) ?: return
             param.args[0] = wrapper
 
             val sensor = param.args.getOrNull(1) as? Sensor
             if (sensor == null) {
-                // unregister total
-                wrapper.stopAll()
-                wrappers.remove(listener)
+                wrapper.stopAll(); registry.remove(listener)
             } else {
                 wrapper.onUnregistered(sensor.type)
-                if (wrapper.isEmpty) {
-                    wrapper.stopAll()
-                    wrappers.remove(listener)
-                }
+                if (wrapper.isEmpty) { wrapper.stopAll(); registry.remove(listener) }
             }
         } catch (t: Throwable) {
             XposedBridge.log("$TAG beforeUnregister error: $t")
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Config / motor / contexto
-    // ---------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // Config / contexto
+    // ------------------------------------------------------------------
 
     @Synchronized
-    private fun currentConfig(ctx: Context?): ModuleConfig {
+    private fun currentConfig(ctx: Context?): StepPhantomConfig {
         val now = SystemClock.elapsedRealtime()
         if (loadedOnce && now - lastLoadMs < CONFIG_TTL_MS) return cachedConfig
-
-        val loaded = HookConfigSource.load(ctx)
+        cachedConfig = HookConfigSource.load(ctx)
         lastLoadMs = now
         loadedOnce = true
-
-        val eng = engine ?: StepSimulationEngine(loaded).also { engine = it }
-        eng.updateConfig(loaded)
-        if (loaded.resetToken != lastResetToken) {
-            lastResetToken = loaded.resetToken
-            eng.reset()
-        }
-        cachedConfig = loaded
-        return loaded
+        return cachedConfig
     }
 
-    private fun engineFor(cfg: ModuleConfig): StepSimulationEngine =
-        engine ?: StepSimulationEngine(cfg).also { engine = it }
-
-    /** Intenta sacar el Context del SystemSensorManager (campo mContext); si no, del Application. */
     private fun extractContext(sm: Any?): Context? {
         if (sm != null) {
             runCatching { XposedHelpers.getObjectField(sm, "mContext") as? Context }
@@ -211,12 +204,56 @@ class SensorHook : IXposedHookLoadPackage {
         return runCatching { AndroidAppHelper.currentApplication() as? Context }.getOrNull()
     }
 
-    private fun shouldSimulate(cfg: ModuleConfig, type: Int): Boolean = when (type) {
-        Sensor.TYPE_STEP_COUNTER -> cfg.simStepCounter
-        Sensor.TYPE_STEP_DETECTOR -> cfg.simStepDetector
-        Sensor.TYPE_ACCELEROMETER -> cfg.simAccelerometer
-        Sensor.TYPE_GYROSCOPE -> cfg.simGyroscope
-        else -> false
+    // ------------------------------------------------------------------
+    // Diagnóstico (canal inverso hacia la app)
+    // ------------------------------------------------------------------
+
+    private fun pushDiag(ctx: Context?, pkg: String, force: Boolean) {
+        val context = ctx ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastDiagPushMs < DIAG_TTL_MS) return
+        lastDiagPushMs = now
+        try {
+            val r = route
+            val json = JSONObject().apply {
+                put("package", pkg)
+                put("uid", android.os.Process.myUid())
+                put("process", runCatching { AndroidAppHelper.currentProcessName() }.getOrDefault("-"))
+                put("sdkInt", Build.VERSION.SDK_INT)
+                put("sdkExtensions", sdkExtensions())
+                put("route", r?.primaryRouteLabel() ?: "desconocida")
+                put("hcJetpack", r?.hcJetpack ?: false)
+                put("hcFramework", r?.hcFramework ?: false)
+                put("fitOrRecording", r?.fitOrRecording ?: false)
+                put("classesFound", JSONArray(r?.classesFound ?: emptyList<String>()))
+                put("lastSensor", lastSensorLabel)
+                put("realValue", lastReal)
+                put("fakeValue", lastFake)
+                put("lastError", lastError)
+                put("timestamp", System.currentTimeMillis())
+            }.toString()
+
+            val values = ContentValues().apply {
+                put(DiagnosticsProvider.COL_PACKAGE, pkg)
+                put(DiagnosticsProvider.COL_JSON, json)
+            }
+            context.contentResolver.insert(DiagnosticsProvider.URI, values)
+        } catch (t: Throwable) {
+            XposedBridge.log("$TAG No se pudo empujar diagnóstico: $t")
+        }
+    }
+
+    private fun sdkExtensions(): String {
+        if (Build.VERSION.SDK_INT < 30) return "n/a"
+        return try {
+            val sb = StringBuilder()
+            val codes = intArrayOf(30, 31, 33, 34) // R, S, T, U
+            for (c in codes) {
+                val v = runCatching { android.os.ext.SdkExtensions.getExtensionVersion(c) }.getOrDefault(-1)
+                if (v >= 0) sb.append("$c=$v ")
+            }
+            sb.toString().trim().ifEmpty { "0" }
+        } catch (_: Throwable) { "n/a" }
     }
 
     private fun sensorName(type: Int): String = when (type) {

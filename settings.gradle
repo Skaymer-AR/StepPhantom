@@ -5,18 +5,14 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
-
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
-        // API clásica de Xposed (de.robv.android.xposed:api:82).
-        maven { url 'https://api.xposed.info/' }
-        // Espejo de respaldo por si api.xposed.info no responde (histórico de caídas).
-        maven { url 'https://jitpack.io' }
+        maven { url 'https://api.xposed.info/' }   // API clásica Xposed (api:82)
+        maven { url 'https://jitpack.io' }          // espejo de respaldo
     }
 }
-
 rootProject.name = "StepPhantom"
 include ':app'

@@ -7,34 +7,21 @@ import java.lang.reflect.Constructor
 /**
  * ⚠️ EXPERIMENTAL / DEPENDIENTE DE VERSIÓN ⚠️
  *
- * En AOSP, android.hardware.SensorEvent tiene un constructor PACKAGE-PRIVATE:
+ * android.hardware.SensorEvent tiene un constructor PACKAGE-PRIVATE en AOSP:
+ *     SensorEvent(int valueSize)
+ * y campos públicos: float[] values (final), Sensor sensor, int accuracy, long timestamp.
  *
- *     SensorEvent(int valueSize) { values = new float[valueSize]; }
- *
- * y sus campos son públicos:  float[] values (final), Sensor sensor,
- * int accuracy, long timestamp.
- *
- * No hay constructor público, así que la única forma de fabricar un SensorEvent
- * "desde cero" es por reflexión sobre ese constructor. Esto es necesario para
- * TYPE_STEP_DETECTOR y para TYPE_STEP_COUNTER cuando el device está quieto y el
- * sensor real NUNCA dispara (no habría evento real que modificar).
- *
- * Riesgos reales:
- *   - Es API oculta (non-SDK). Bajo LSPosed/Vector normalmente el proceso queda
- *     exento de la lista negra de hidden-API, pero no está garantizado en toda
- *     ROM. Si getDeclaredConstructor falla por restricción de hidden-API,
- *     agregá la dependencia org.lsposed.hiddenapibypass y envolvé la reflexión.
- *   - El layout del constructor/campos podría cambiar en una versión futura.
- *     Verificá contra el source de tu Android 16 concreto si deja de funcionar.
- *
- * Si esto devuelve null, el wrapper cae al plan B (reutilizar un evento real
- * cacheado), y si tampoco hay, no entrega evento (y lo dice en el log).
+ * No hay constructor público, así que fabricar un SensorEvent "desde cero" (para
+ * empujar TYPE_STEP_COUNTER/DETECTOR cuando el sensor real no dispara) requiere
+ * reflexión. Es API oculta: bajo LSPosed/Vector el proceso suele quedar exento de
+ * la lista negra hidden-API, pero no está garantizado en toda ROM. Si falla,
+ * el wrapper cae a reutilizar un evento real cacheado; si tampoco hay, no entrega.
  */
 object SensorEventFactory {
 
     private val ctor: Constructor<SensorEvent>? = try {
         SensorEvent::class.java
-            .getDeclaredConstructor(Int::class.javaPrimitiveType)
+            .getDeclaredConstructor(Integer.TYPE)
             .also { it.isAccessible = true }
     } catch (t: Throwable) {
         XposedBridge.log("[StepPhantom] SensorEvent(int) no disponible por reflexión: $t")

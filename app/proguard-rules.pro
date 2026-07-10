@@ -1,10 +1,13 @@
-# Xposed carga la clase del módulo por NOMBRE (desde assets/xposed_init).
-# Si R8/ProGuard la renombra o la elimina, el módulo no carga. Mantenela.
+# Xposed carga la clase del modulo por NOMBRE (assets/xposed_init). No la toques.
 -keep class com.stepphantom.xposed.** { *; }
 -keep class * implements de.robv.android.xposed.IXposedHookLoadPackage { *; }
 
-# El ContentProvider también se referencia por nombre desde el manifest.
+# Providers referenciados por nombre desde el manifest.
 -keep class com.stepphantom.config.ConfigProvider { *; }
+-keep class com.stepphantom.config.DiagnosticsProvider { *; }
 
-# La API de Xposed es compileOnly; nunca debería empaquetarse, pero por las dudas:
+# API Xposed es compileOnly; no deberia empaquetarse.
 -dontwarn de.robv.android.xposed.**
+
+# Health Connect
+-dontwarn androidx.health.connect.**
