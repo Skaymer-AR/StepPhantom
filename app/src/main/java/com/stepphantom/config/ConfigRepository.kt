@@ -4,53 +4,42 @@ import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/**
- * Lado APP (proceso propio). Persiste la config en SharedPreferences como un
- * único blob JSON bajo [ModuleConfig.PREFS_KEY_JSON]. Guardar UN solo string
- * mantiene todo consistente y hace trivial el export/import.
- *
- * Cada vez que se guarda, además de escribir el prefs, notificamos al
- * ContentProvider para que quien esté cacheando del otro lado pueda invalidar.
- */
 class ConfigRepository(private val appContext: Context) {
-
-    private val prefs =
-        appContext.getSharedPreferences(ModuleConfig.PREFS_NAME, Context.MODE_PRIVATE)
-
+    private val prefs = appContext.getSharedPreferences(StepPhantomConfig.PREFS_NAME, Context.MODE_PRIVATE)
     private val _config = MutableStateFlow(load())
-    val config: StateFlow<ModuleConfig> = _config
+    val config: StateFlow<StepPhantomConfig> = _config
 
-    fun load(): ModuleConfig {
-        val json = prefs.getString(ModuleConfig.PREFS_KEY_JSON, null)
-            ?: return ModuleConfig()
-        return ModuleConfig.fromJsonString(json)
+    fun load(): StepPhantomConfig {
+        val json = prefs.getString(StepPhantomConfig.PREFS_KEY_JSON, null) ?: return StepPhantomConfig()
+        return StepPhantomConfig.fromJsonString(json)
     }
 
-    fun save(config: ModuleConfig) {
-        prefs.edit()
-            .putString(ModuleConfig.PREFS_KEY_JSON, config.toJsonString())
-            .apply()
-        _config.value = config
-        // Avisar al provider que el dato cambió (útil si algún observer está suscripto).
-        runCatching {
-            appContext.contentResolver.notifyChange(ConfigProvider.CONFIG_URI, null)
-        }
+    private fun save(cfg: StepPhantomConfig) {
+        prefs.edit().putString(StepPhantomConfig.PREFS_KEY_JSON, cfg.toJsonString()).apply()
+        _config.value = cfg
+        runCatching { appContext.contentResolver.notifyChange(ConfigProvider.URI, null) }
     }
 
-    fun update(transform: (ModuleConfig) -> ModuleConfig) {
-        save(transform(_config.value))
+    fun addPackage(pkg: String) {
+        val clean = pkg.trim()
+        if (clean.isEmpty() || clean in _config.value.packages) return
+        save(_config.value.copy(packages = _config.value.packages + (clean to PackageConfig())))
     }
 
-    // ------- Export / Import JSON -------
+    fun removePackage(pkg: String) {
+        if (pkg !in _config.value.packages) return
+        save(_config.value.copy(packages = _config.value.packages - pkg))
+    }
 
+    fun updatePackage(pkg: String, transform: (PackageConfig) -> PackageConfig) {
+        val current = _config.value.packages[pkg] ?: PackageConfig()
+        save(_config.value.copy(packages = _config.value.packages + (pkg to transform(current))))
+    }
+
+    fun packageConfig(pkg: String): PackageConfig = _config.value.packages[pkg] ?: PackageConfig()
     fun exportJson(): String = _config.value.toJsonString()
-
-    /** Devuelve true si el JSON era válido y se importó. */
-    fun importJson(json: String): Boolean {
-        return runCatching {
-            val cfg = ModuleConfig.fromJson(org.json.JSONObject(json))
-            save(cfg)
-            true
-        }.getOrDefault(false)
-    }
+    fun importJson(json: String): Boolean = runCatching {
+        save(StepPhantomConfig.fromJson(org.json.JSONObject(json)))
+        true
+    }.getOrDefault(false)
 }

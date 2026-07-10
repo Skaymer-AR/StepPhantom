@@ -2,57 +2,40 @@ package com.stepphantom.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.stepphantom.config.ConfigRepository
-import com.stepphantom.config.ModuleConfig
-import com.stepphantom.config.WalkMode
+import com.stepphantom.config.DiagnosticsStore
+import com.stepphantom.config.PackageConfig
+import com.stepphantom.config.StepPhantomConfig
+import com.stepphantom.health.HealthConnectWriter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-class MainViewModel(app: Application) : AndroidViewModel(app) {
-
-    private val repo = ConfigRepository(app.applicationContext)
-    val config: StateFlow<ModuleConfig> = repo.config
-    val logs: StateFlow<List<String>> = AppDiagnostics.lines
-
-    init { AppDiagnostics.log("App abierta. Config cargada.") }
-
-    fun setModuleEnabled(v: Boolean) = edit("Módulo ${if (v) "ACTIVADO" else "desactivado"}") { it.copy(moduleEnabled = v) }
-
-    fun addPackage(pkg: String) {
-        val clean = pkg.trim()
-        if (clean.isEmpty()) return
-        edit("Paquete agregado: $clean") {
-            if (clean in it.targetPackages) it
-            else it.copy(targetPackages = it.targetPackages + clean)
-        }
-    }
-
-    fun removePackage(pkg: String) =
-        edit("Paquete quitado: $pkg") { it.copy(targetPackages = it.targetPackages - pkg) }
-
-    fun setSimStepCounter(v: Boolean) = edit("Sim STEP_COUNTER=$v") { it.copy(simStepCounter = v) }
-    fun setSimStepDetector(v: Boolean) = edit("Sim STEP_DETECTOR=$v") { it.copy(simStepDetector = v) }
-    fun setSimAccelerometer(v: Boolean) = edit("Sim ACCEL=$v") { it.copy(simAccelerometer = v) }
-    fun setSimGyroscope(v: Boolean) = edit("Sim GYRO=$v") { it.copy(simGyroscope = v) }
-
-    fun setStepsPerMinute(v: Int) = edit("Pasos/min=$v") { it.copy(stepsPerMinute = v.coerceIn(0, 100_000)) }
-    fun setInitialSteps(v: Long) = edit("Pasos iniciales=$v") { it.copy(initialSteps = v.coerceAtLeast(0)) }
-    fun setJitter(v: Float) = edit("Jitter=$v%") { it.copy(jitterPercent = v.coerceIn(0f, 100f)) }
-    fun setWalkMode(m: WalkMode) = edit("Modo=$m") { it.copy(walkMode = m) }
-
-    fun resetCounter() = edit("Reset de contador solicitado") {
-        it.copy(resetToken = System.currentTimeMillis())
-    }
-
-    fun exportJson(): String = repo.exportJson()
-
-    fun importJson(json: String): Boolean {
-        val ok = repo.importJson(json)
-        AppDiagnostics.log(if (ok) "Config importada desde JSON" else "JSON inválido: no se importó")
-        return ok
-    }
-
-    private inline fun edit(logMsg: String, crossinline t: (ModuleConfig) -> ModuleConfig) {
-        repo.update { t(it) }
-        AppDiagnostics.log(logMsg)
-    }
+data class HcUiState(val available:Boolean=false,val hasPermission:Boolean=false,val message:String="")
+class MainViewModel(app:Application):AndroidViewModel(app){
+    private val repo=ConfigRepository(app.applicationContext)
+    val config:StateFlow<StepPhantomConfig> = repo.config
+    val logs:StateFlow<List<String>> = AppDiagnostics.lines
+    val diagnostics:StateFlow<Map<String,String>> = DiagnosticsStore.snapshots
+    private val _apps=MutableStateFlow<List<AppInfo>>(emptyList());val apps:StateFlow<List<AppInfo>> = _apps
+    private val _loadingApps=MutableStateFlow(false);val loadingApps:StateFlow<Boolean> = _loadingApps
+    private val _hc=MutableStateFlow(HcUiState());val hc:StateFlow<HcUiState> = _hc
+    init{DiagnosticsStore.ensure(app.applicationContext);AppDiagnostics.log("App abierta.");refreshHc()}
+    fun addPackage(pkg:String){val clean=pkg.trim();if(clean.isEmpty())return;if(!AppEnumerator.exists(getApplication(),clean))AppDiagnostics.log("Paquete inexistente (se agrega igual): $clean");repo.addPackage(clean);AppDiagnostics.log("Paquete agregado: $clean")}
+    fun removePackage(pkg:String){repo.removePackage(pkg);AppDiagnostics.log("Paquete quitado: $pkg")}
+    fun toggleSelected(pkg:String,selected:Boolean){if(selected)addPackage(pkg)else removePackage(pkg)}
+    fun updatePackage(pkg:String,transform:(PackageConfig)->PackageConfig)=repo.updatePackage(pkg,transform)
+    fun packageConfig(pkg:String):PackageConfig=repo.packageConfig(pkg)
+    fun resetBaseline(pkg:String){repo.updatePackage(pkg){it.copy(resetToken=System.currentTimeMillis())};AppDiagnostics.log("Reset de baseline: $pkg")}
+    fun selectedPackagesText():String=config.value.packages.keys.joinToString("\n")
+    fun loadApps(includeSystem:Boolean){_loadingApps.value=true;viewModelScope.launch{_apps.value=withContext(Dispatchers.Default){AppEnumerator.list(getApplication(),includeSystem)};_loadingApps.value=false}}
+    fun exportJson():String=repo.exportJson()
+    fun importJson(json:String):Boolean{val ok=repo.importJson(json);AppDiagnostics.log(if(ok)"Config importada" else "JSON inválido");return ok}
+    fun clearDiagnostics(){DiagnosticsStore.clear();AppDiagnostics.log("Diagnósticos borrados")}
+    fun refreshHc(){viewModelScope.launch{val ctx=getApplication<Application>();val available=HealthConnectWriter.isAvailable(ctx);val hasPerm=if(available)runCatching{HealthConnectWriter.hasPermissions(ctx)}.getOrDefault(false)else false;_hc.value=_hc.value.copy(available=available,hasPermission=hasPerm)}}
+    fun writeTestSteps(count:Long){viewModelScope.launch{val ctx=getApplication<Application>();val msg=runCatching{if(HealthConnectWriter.writeTestSteps(ctx,count))"Escrito: $count pasos de prueba" else "No se pudo escribir (HC no disponible o valor inválido)"}.getOrElse{"Error al escribir: $it"};_hc.value=_hc.value.copy(message=msg);AppDiagnostics.log("HC write: $msg")}}
+    fun deleteOwnSteps(){viewModelScope.launch{val ctx=getApplication<Application>();val msg=runCatching{"Borrados ${HealthConnectWriter.deleteOwnSteps(ctx)} registros escritos por StepPhantom"}.getOrElse{"Error al borrar: $it"};_hc.value=_hc.value.copy(message=msg);AppDiagnostics.log("HC delete: $msg")}}
 }
