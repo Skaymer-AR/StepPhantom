@@ -3,6 +3,8 @@ name: Build fixed StepPhantom APK
 on:
   push:
     branches: [ build-fixed ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
