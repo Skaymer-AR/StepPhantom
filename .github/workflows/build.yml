@@ -15,6 +15,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Apply diagnostic source fix
+        shell: bash
+        run: |
+          sed -i 's/import de\.robv\.android\.xposed\.AndroidAppHelper/import android.app.AndroidAppHelper/' app/src/main/java/com/stepphantom/xposed/SensorHook.kt
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
