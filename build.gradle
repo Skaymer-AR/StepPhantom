@@ -1,7 +1,0 @@
-// Versiones de plugins. Si Android Studio te sugiere versiones distintas para
-// compileSdk 36, hacele caso: el ecosistema se mueve rápido.
-plugins {
-    id 'com.android.application' version '8.9.0' apply false
-    id 'org.jetbrains.kotlin.android' version '2.1.0' apply false
-    id 'org.jetbrains.kotlin.plugin.compose' version '2.1.0' apply false
-}

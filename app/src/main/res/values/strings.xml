@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">StepPhantom</string>
-    <string name="xposed_desc">Simulador configurable de sensores de pasos/movimiento (STEP_COUNTER, STEP_DETECTOR, acelerómetro, giroscopio) para testing local vía hooks. Experimental.</string>
-</resources>
