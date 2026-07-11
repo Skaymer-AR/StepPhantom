@@ -23,9 +23,17 @@ data class HcUiState(
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo = ConfigRepository(app.applicationContext)
+    private val uiPrefs = UiPreferences(app.applicationContext)
+
     val config: StateFlow<StepPhantomConfig> = repo.config
     val logs: StateFlow<List<String>> = AppDiagnostics.lines
     val diagnostics: StateFlow<Map<String, String>> = DiagnosticsStore.snapshots
+
+    val language: StateFlow<Lang> = uiPrefs.language
+    val dynamicColor: StateFlow<Boolean> = uiPrefs.dynamicColor
+    fun setLanguage(lang: Lang) = uiPrefs.setLanguage(lang)
+    fun toggleLanguage() = uiPrefs.setLanguage(if (uiPrefs.language.value == Lang.ES) Lang.EN else Lang.ES)
+    fun setDynamicColor(enabled: Boolean) = uiPrefs.setDynamicColor(enabled)
 
     private val _apps = MutableStateFlow<List<AppInfo>>(emptyList())
     val apps: StateFlow<List<AppInfo>> = _apps

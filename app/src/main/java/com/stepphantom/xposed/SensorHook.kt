@@ -1,6 +1,6 @@
 package com.stepphantom.xposed
 
-import de.robv.android.xposed.AndroidAppHelper
+import android.app.AndroidAppHelper
 import android.content.ContentValues
 import android.content.Context
 import android.hardware.Sensor

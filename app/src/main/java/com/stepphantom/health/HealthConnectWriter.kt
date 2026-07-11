@@ -24,7 +24,7 @@ import java.time.temporal.ChronoUnit
  * Apagada por defecto. Requiere que el usuario conceda permisos explícitos en
  * Health Connect. Sólo puede borrar los registros que ESTA app escribió.
  *
- * NOTA de versión: pineado contra connect-client:1.1.0. Si subís la
+ * NOTA de versión: pineado contra connect-client:1.1.0-alpha07. Si subís la
  * versión, la API de Metadata puede cambiar (p.ej. Metadata.manualEntry(...)).
  */
 object HealthConnectWriter {
@@ -67,7 +67,7 @@ object HealthConnectWriter {
             startZoneOffset = zone.rules.getOffset(start),
             endTime = end,
             endZoneOffset = zone.rules.getOffset(end),
-            metadata = Metadata.manualEntry()
+            metadata = Metadata()
         )
         client(context).insertRecords(listOf(record))
         return true

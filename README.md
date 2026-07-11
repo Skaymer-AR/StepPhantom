@@ -5,6 +5,22 @@ autorización**. Transforma pasos **por aplicación** interceptando `SensorManag
 detecta por qué vía lee pasos cada app (diagnóstico), y trae un **writer oficial**
 de datos de prueba para Health Connect (separado, apagado por defecto).
 
+
+## Novedades de esta versión (UI)
+
+- **Material You expresivo**: paleta violeta/turquesa/naranja, esquinas redondeadas,
+  tipografía con titulares grandes, tarjetas con contenedores de color.
+- **Color dinámico** del wallpaper en Android 12+ (toggle en Ajustes; apagado usa la
+  paleta propia). Funciona en claro y oscuro.
+- **Idioma ES/EN** con selector adentro de la app (botón en la barra superior y en
+  Ajustes). Cambia en vivo, sin reiniciar la actividad.
+- **Ícono propio** (adaptive icon "fantasma" con capa monocromática para el ícono
+  temático de Android 13+).
+- **Transiciones animadas** entre pantallas (fade + slide) y tarjetas con
+  `animateContentSize`.
+
+La lógica (config por app, motor de transformación, hooks, writer de HC) no cambió.
+
 ## Qué hace y qué NO hace
 
 | Capacidad | Estado |
@@ -178,27 +194,13 @@ adb shell "rm /data/local/tmp/stepphantom_disable"       # reactiva
 
 ## Versiones que quizá tengas que ajustar
 
-- **AGP/Gradle/compileSdk 36**: fijé AGP 8.10.1 + Gradle 8.11.1 + Kotlin 2.1.0. Si tu
+- **AGP/Gradle/compileSdk 36**: fijé AGP 8.9.1 + Gradle 8.11.1 + Kotlin 2.1.0. Si tu
   entorno pide otra combinación para `compileSdk 36`, seguí la sugerencia de Studio
   (el workflow ya usa Gradle 8.11.1).
-- **Health Connect** (`connect-client:1.1.0`): si subís la versión, revisá la
+- **Health Connect** (`connect-client:1.1.0-alpha07`): si subís la versión, revisá la
   API de `Metadata` y `getGrantedPermissions()` en `HealthConnectWriter.kt`.
 
 ## Estado
 
 Base **experimental** y coherente para la ruta de sensores. Compila a APK (local o
 por Actions). Esperá ajustes finos de versiones al abrirlo en Studio.
-
-## Revisión de compilación aplicada
-
-Esta copia incluye correcciones de integración verificables antes del CI:
-
-- import correcto de `de.robv.android.xposed.AndroidAppHelper`;
-- creación de metadata con `Metadata.manualEntry()`;
-- Health Connect estable `connect-client:1.1.0`;
-- AGP 8.10.1 para `compileSdk 36`, Gradle 8.11.1 y Java 17;
-- instalación explícita de `platforms;android-36` en GitHub Actions;
-- dependencia explícita `lifecycle-viewmodel-ktx` para `viewModelScope`.
-
-La validación definitiva se realiza en GitHub Actions, porque el APK necesita el
-Android SDK y dependencias Maven completas.

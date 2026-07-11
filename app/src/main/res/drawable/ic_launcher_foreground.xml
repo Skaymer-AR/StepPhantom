@@ -1,0 +1,15 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Cuerpo del fantasma -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,28 C41,28 31,40 31,55 L31,82 L39,73 L47,82 L54,73 L61,82 L69,73 L77,82 L77,55 C77,40 67,28 54,28 Z" />
+    <!-- Ojos -->
+    <path android:fillColor="#FF5A1CC0" android:pathData="M46,52 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
+    <path android:fillColor="#FF5A1CC0" android:pathData="M62,52 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
+    <!-- Guiño turquesa (paso) -->
+    <path android:fillColor="#FF00A99D" android:pathData="M54,63 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+</vector>

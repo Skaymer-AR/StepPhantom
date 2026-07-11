@@ -4,14 +4,17 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -24,6 +27,7 @@ import com.stepphantom.config.TransformMode
 
 @Composable
 fun AppsScreen(vm: MainViewModel, onOpenConfig: (String) -> Unit) {
+    val s = LocalStrings.current
     val cfg by vm.config.collectAsState()
     val apps by vm.apps.collectAsState()
     val loading by vm.loadingApps.collectAsState()
@@ -38,71 +42,60 @@ fun AppsScreen(vm: MainViewModel, onOpenConfig: (String) -> Unit) {
     val selected = cfg.packages.keys
     val filtered = remember(apps, query) {
         if (query.isBlank()) apps
-        else apps.filter {
-            it.label.contains(query, true) || it.packageName.contains(query, true)
-        }
+        else apps.filter { it.label.contains(query, true) || it.packageName.contains(query, true) }
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Spacer(Modifier.height(12.dp))
-        Text("Aplicaciones", style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(8.dp))
+        Text(s.appsTitle, style = MaterialTheme.typography.headlineSmall)
 
         OutlinedTextField(
             value = query, onValueChange = { query = it },
-            label = { Text("Buscar por nombre o package") },
-            singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            label = { Text(s.search) }, singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
         )
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Mostrar apps del sistema", Modifier.weight(1f))
+            Text(s.showSystem, Modifier.weight(1f))
             Switch(checked = includeSystem, onCheckedChange = { includeSystem = it })
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = manual, onValueChange = { manual = it },
-                label = { Text("Agregar package manual") },
-                singleLine = true, modifier = Modifier.weight(1f)
+                label = { Text(s.addManual) }, singleLine = true, modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(8.dp))
-            Button(onClick = { vm.addPackage(manual); manual = "" }) { Text("Agregar") }
+            FilledTonalButton(onClick = { vm.addPackage(manual); manual = "" }) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(s.add)
+            }
         }
 
-        Row {
-            TextButton(onClick = {
-                clipboard.setText(AnnotatedString(vm.selectedPackagesText()))
-            }) { Text("Copiar seleccionadas (${selected.size})") }
+        TextButton(onClick = { clipboard.setText(AnnotatedString(vm.selectedPackagesText())) }) {
+            Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp)); Text(s.copySelected(selected.size))
         }
 
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
 
-        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            // Seleccionadas primero (incluye packages manuales no instalados).
-            val manualOnly = selected.filter { s -> apps.none { it.packageName == s } }
+        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val manualOnly = selected.filter { sel -> apps.none { it.packageName == sel } }
             if (manualOnly.isNotEmpty()) {
-                item { Text("Seleccionadas no listadas", style = MaterialTheme.typography.titleSmall) }
+                item { Text(s.selectedNotListed, style = MaterialTheme.typography.titleSmall) }
                 items(manualOnly) { pkg ->
-                    AppRow(
-                        label = pkg, pkg = pkg, isSystem = false, icon = null,
-                        checked = true,
-                        onCheck = { vm.toggleSelected(pkg, it) },
-                        onOpen = { onOpenConfig(pkg) }
-                    )
+                    AppRow(pkg, pkg, isSystem = false, icon = null, checked = true,
+                        onCheck = { vm.toggleSelected(pkg, it) }, onOpen = { onOpenConfig(pkg) })
                 }
                 item { HorizontalDivider() }
             }
-
             items(filtered) { app ->
                 val bmp = remember(app.packageName) {
                     runCatching { app.icon?.toBitmap(96, 96)?.asImageBitmap() }.getOrNull()
                 }
-                AppRow(
-                    label = app.label, pkg = app.packageName, isSystem = app.isSystem,
-                    icon = bmp,
+                AppRow(app.label, app.packageName, app.isSystem, bmp,
                     checked = app.packageName in selected,
                     onCheck = { vm.toggleSelected(app.packageName, it) },
-                    onOpen = { onOpenConfig(app.packageName) }
-                )
+                    onOpen = { onOpenConfig(app.packageName) })
             }
             item { Spacer(Modifier.height(24.dp)) }
         }
@@ -111,114 +104,94 @@ fun AppsScreen(vm: MainViewModel, onOpenConfig: (String) -> Unit) {
 
 @Composable
 private fun AppRow(
-    label: String,
-    pkg: String,
-    isSystem: Boolean,
-    icon: androidx.compose.ui.graphics.ImageBitmap?,
-    checked: Boolean,
-    onCheck: (Boolean) -> Unit,
-    onOpen: () -> Unit
+    label: String, pkg: String, isSystem: Boolean, icon: ImageBitmap?,
+    checked: Boolean, onCheck: (Boolean) -> Unit, onOpen: () -> Unit
 ) {
+    val s = LocalStrings.current
     ElevatedCard(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (icon != null) Image(icon, null, Modifier.size(40.dp)) else Spacer(Modifier.size(40.dp))
-            Spacer(Modifier.width(10.dp))
+            if (icon != null) Image(icon, null, Modifier.size(42.dp)) else Spacer(Modifier.size(42.dp))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium)
                 Text(pkg, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(if (isSystem) "sistema" else "usuario",
+                Text(if (isSystem) s.systemLabel else s.userLabel,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            TextButton(onClick = onOpen) { Text("Config") }
+            TextButton(onClick = onOpen) { Text(s.config) }
             Checkbox(checked = checked, onCheckedChange = onCheck)
         }
     }
 }
 
-/* --------------------- Config por aplicación --------------------- */
+/* --------------------- Config por aplicación (content-only) --------------------- */
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PackageConfigScreen(vm: MainViewModel, pkg: String, onBack: () -> Unit) {
+fun PackageConfigScreen(vm: MainViewModel, pkg: String) {
+    val s = LocalStrings.current
     val cfgRoot by vm.config.collectAsState()
     val cfg = cfgRoot.packages[pkg] ?: PackageConfig()
 
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text(pkg, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = {
-                IconButton(onClick = onBack) { Text("\u2190") }
-            }
-        )
-    }) { pad ->
-        Column(
-            Modifier.padding(pad).fillMaxSize()
-                .verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            SectionCard {
-                SwitchRow("Módulo activo para esta app", cfg.enabled) {
-                    vm.updatePackage(pkg) { c -> c.copy(enabled = it) }
-                }
-                SwitchRow("Hook SensorManager (ruta implementada)", cfg.hookSensorManager) {
-                    vm.updatePackage(pkg) { c -> c.copy(hookSensorManager = it) }
-                }
-            }
-
-            SectionCard {
-                Text("Modo", style = MaterialTheme.typography.titleMedium)
-                TransformMode.values().forEach { m ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = cfg.mode == m, onClick = {
-                            vm.updatePackage(pkg) { c -> c.copy(mode = m) }
-                        })
-                        Text(modeLabel(m))
-                    }
-                }
-                Button(onClick = {
-                    vm.updatePackage(pkg) { c -> c.copy(mode = TransformMode.REEMPLAZAR, replaceValue = 87L, enabled = true) }
-                }) { Text("Preset 4 → 87") }
-            }
-
-            SectionCard {
-                Text("Parámetros", style = MaterialTheme.typography.titleMedium)
-                NumberFieldLong("Offset (SUMAR)", cfg.offset) { v -> vm.updatePackage(pkg) { it.copy(offset = v) } }
-                NumberFieldFloat("Multiplicador (MULTIPLICAR)", cfg.multiplier) { v -> vm.updatePackage(pkg) { it.copy(multiplier = v) } }
-                NumberFieldLong("Valor objetivo (REEMPLAZAR)", cfg.replaceValue) { v -> vm.updatePackage(pkg) { it.copy(replaceValue = v) } }
-                NumberFieldInt("Pasos por minuto", cfg.stepsPerMinute) { v -> vm.updatePackage(pkg) { it.copy(stepsPerMinute = v) } }
-                NumberFieldLong("Pasos iniciales", cfg.initialSteps) { v -> vm.updatePackage(pkg) { it.copy(initialSteps = v) } }
-                Text("Jitter: ${cfg.jitterPercent.toInt()}%")
-                Slider(value = cfg.jitterPercent, onValueChange = { v -> vm.updatePackage(pkg) { it.copy(jitterPercent = v) } }, valueRange = 0f..50f)
-                NumberFieldLong("Límite mínimo (PERSONALIZADO)", cfg.minLimit) { v -> vm.updatePackage(pkg) { it.copy(minLimit = v) } }
-                NumberFieldLong("Límite máximo (-1 = sin límite)", cfg.maxLimit) { v -> vm.updatePackage(pkg) { it.copy(maxLimit = v) } }
-            }
-
-            SectionCard {
-                SwitchRow("Pausa", cfg.paused) { vm.updatePackage(pkg) { c -> c.copy(paused = it) } }
-                OutlinedButton(onClick = { vm.resetBaseline(pkg) }) { Text("Reiniciar baseline / sesión") }
-            }
-
-            SectionCard {
-                Text("Diagnóstico de vías (no reescribe)", style = MaterialTheme.typography.titleMedium)
-                SwitchRow("Detectar Health Connect Jetpack", cfg.detectHcJetpack) { vm.updatePackage(pkg) { c -> c.copy(detectHcJetpack = it) } }
-                SwitchRow("Detectar Health Connect framework", cfg.detectHcFramework) { vm.updatePackage(pkg) { c -> c.copy(detectHcFramework = it) } }
-            }
-
-            SectionCard {
-                Text("Experimental (puede romper apps)", style = MaterialTheme.typography.titleMedium)
-                SwitchRow("Simular acelerómetro", cfg.simAccelerometer) { vm.updatePackage(pkg) { c -> c.copy(simAccelerometer = it) } }
-                SwitchRow("Simular giroscopio", cfg.simGyroscope) { vm.updatePackage(pkg) { c -> c.copy(simGyroscope = it) } }
-            }
-
-            Spacer(Modifier.height(24.dp))
+    ScrollColumn {
+        SectionCard {
+            SwitchRow(s.moduleActive, cfg.enabled) { vm.updatePackage(pkg) { c -> c.copy(enabled = it) } }
+            SwitchRow(s.hookSensorManager, cfg.hookSensorManager) { vm.updatePackage(pkg) { c -> c.copy(hookSensorManager = it) } }
         }
+
+        SectionCard {
+            Text(s.mode, style = MaterialTheme.typography.titleMedium)
+            TransformMode.values().forEach { m ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = cfg.mode == m, onClick = { vm.updatePackage(pkg) { c -> c.copy(mode = m) } })
+                    Text(modeLabel(s, m))
+                }
+            }
+            FilledTonalButton(onClick = {
+                vm.updatePackage(pkg) { c -> c.copy(mode = TransformMode.REEMPLAZAR, replaceValue = 87L, enabled = true) }
+            }) { Text(s.preset487) }
+        }
+
+        SectionCard {
+            Text(s.params, style = MaterialTheme.typography.titleMedium)
+            NumberFieldLong(s.offset, cfg.offset) { v -> vm.updatePackage(pkg) { it.copy(offset = v) } }
+            NumberFieldFloat(s.multiplier, cfg.multiplier) { v -> vm.updatePackage(pkg) { it.copy(multiplier = v) } }
+            NumberFieldLong(s.replaceValue, cfg.replaceValue) { v -> vm.updatePackage(pkg) { it.copy(replaceValue = v) } }
+            NumberFieldInt(s.stepsPerMinute, cfg.stepsPerMinute) { v -> vm.updatePackage(pkg) { it.copy(stepsPerMinute = v) } }
+            NumberFieldLong(s.initialSteps, cfg.initialSteps) { v -> vm.updatePackage(pkg) { it.copy(initialSteps = v) } }
+            Text(s.jitter(cfg.jitterPercent.toInt()))
+            Slider(value = cfg.jitterPercent, onValueChange = { v -> vm.updatePackage(pkg) { it.copy(jitterPercent = v) } }, valueRange = 0f..50f)
+            NumberFieldLong(s.minLimit, cfg.minLimit) { v -> vm.updatePackage(pkg) { it.copy(minLimit = v) } }
+            NumberFieldLong(s.maxLimit, cfg.maxLimit) { v -> vm.updatePackage(pkg) { it.copy(maxLimit = v) } }
+        }
+
+        SectionCard {
+            SwitchRow(s.pause, cfg.paused) { vm.updatePackage(pkg) { c -> c.copy(paused = it) } }
+            OutlinedButton(onClick = { vm.resetBaseline(pkg) }) {
+                Icon(Icons.Rounded.RestartAlt, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp)); Text(s.resetBaseline)
+            }
+        }
+
+        SectionCard {
+            Text(s.routeDiagTitle, style = MaterialTheme.typography.titleMedium)
+            SwitchRow(s.detectHcJetpack, cfg.detectHcJetpack) { vm.updatePackage(pkg) { c -> c.copy(detectHcJetpack = it) } }
+            SwitchRow(s.detectHcFramework, cfg.detectHcFramework) { vm.updatePackage(pkg) { c -> c.copy(detectHcFramework = it) } }
+        }
+
+        SectionCard {
+            Text(s.experimentalTitle, style = MaterialTheme.typography.titleMedium)
+            SwitchRow(s.simAccel, cfg.simAccelerometer) { vm.updatePackage(pkg) { c -> c.copy(simAccelerometer = it) } }
+            SwitchRow(s.simGyro, cfg.simGyroscope) { vm.updatePackage(pkg) { c -> c.copy(simGyroscope = it) } }
+        }
+        Spacer(Modifier.height(16.dp))
     }
 }
 
-/* --------------------------- helpers --------------------------- */
+/* ------------------------------ helpers ------------------------------ */
 
 @Composable
 fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
@@ -261,11 +234,11 @@ fun NumberFieldFloat(label: String, value: Float, onValue: (Float) -> Unit) {
     )
 }
 
-private fun modeLabel(m: TransformMode): String = when (m) {
-    TransformMode.ORIGINAL -> "ORIGINAL (sin cambios)"
-    TransformMode.SUMAR -> "SUMAR (real + offset)"
-    TransformMode.MULTIPLICAR -> "MULTIPLICAR (real × mult)"
-    TransformMode.REEMPLAZAR -> "REEMPLAZAR (valor objetivo)"
-    TransformMode.RITMO_SIMULADO -> "RITMO_SIMULADO (por tiempo)"
-    TransformMode.PERSONALIZADO -> "PERSONALIZADO (combinado)"
+private fun modeLabel(s: Strings, m: TransformMode): String = when (m) {
+    TransformMode.ORIGINAL -> s.modeOriginal
+    TransformMode.SUMAR -> s.modeAdd
+    TransformMode.MULTIPLICAR -> s.modeMultiply
+    TransformMode.REEMPLAZAR -> s.modeReplace
+    TransformMode.RITMO_SIMULADO -> s.modeRhythm
+    TransformMode.PERSONALIZADO -> s.modeCustom
 }
