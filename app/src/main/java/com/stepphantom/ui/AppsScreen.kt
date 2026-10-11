@@ -1,6 +1,7 @@
 package com.stepphantom.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,6 +9,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -161,6 +164,7 @@ fun PackageConfigScreen(vm: MainViewModel, pkg: String) {
     val s = LocalStrings.current
     val cfgRoot by vm.config.collectAsState()
     val cfg = cfgRoot.packages[pkg] ?: PackageConfig()
+    var advancedExpanded by rememberSaveable(pkg) { mutableStateOf(false) }
 
     ScrollColumn {
         SectionCard {
@@ -183,15 +187,36 @@ fun PackageConfigScreen(vm: MainViewModel, pkg: String) {
 
         SectionCard {
             Text(s.params, style = MaterialTheme.typography.titleMedium)
-            NumberFieldLong(s.offset, cfg.offset) { v -> vm.updatePackage(pkg) { it.copy(offset = v) } }
-            NumberFieldFloat(s.multiplier, cfg.multiplier) { v -> vm.updatePackage(pkg) { it.copy(multiplier = v) } }
-            NumberFieldLong(s.replaceValue, cfg.replaceValue) { v -> vm.updatePackage(pkg) { it.copy(replaceValue = v) } }
-            NumberFieldInt(s.stepsPerMinute, cfg.stepsPerMinute) { v -> vm.updatePackage(pkg) { it.copy(stepsPerMinute = v) } }
-            NumberFieldLong(s.initialSteps, cfg.initialSteps) { v -> vm.updatePackage(pkg) { it.copy(initialSteps = v) } }
-            Text(s.jitter(cfg.jitterPercent.toInt()))
-            Slider(value = cfg.jitterPercent, onValueChange = { v -> vm.updatePackage(pkg) { it.copy(jitterPercent = v) } }, valueRange = 0f..50f)
-            NumberFieldLong(s.minLimit, cfg.minLimit) { v -> vm.updatePackage(pkg) { it.copy(minLimit = v) } }
-            NumberFieldLong(s.maxLimit, cfg.maxLimit) { v -> vm.updatePackage(pkg) { it.copy(maxLimit = v) } }
+            when (cfg.mode) {
+                TransformMode.ORIGINAL -> Text(s.realStepsHint, style = MaterialTheme.typography.bodyMedium)
+                TransformMode.SUMAR -> NumberFieldLong(s.offset, cfg.offset) { v ->
+                    vm.updatePackage(pkg) { it.copy(offset = v) }
+                }
+                TransformMode.MULTIPLICAR -> NumberFieldFloat(s.multiplier, cfg.multiplier) { v ->
+                    vm.updatePackage(pkg) { it.copy(multiplier = v) }
+                }
+                TransformMode.REEMPLAZAR -> NumberFieldLong(s.replaceValue, cfg.replaceValue) { v ->
+                    vm.updatePackage(pkg) { it.copy(replaceValue = v) }
+                }
+                TransformMode.RITMO_SIMULADO -> {
+                    NumberFieldInt(s.stepsPerMinute, cfg.stepsPerMinute) { v ->
+                        vm.updatePackage(pkg) { it.copy(stepsPerMinute = v) }
+                    }
+                    NumberFieldLong(s.initialSteps, cfg.initialSteps) { v ->
+                        vm.updatePackage(pkg) { it.copy(initialSteps = v) }
+                    }
+                }
+                TransformMode.PERSONALIZADO -> {
+                    NumberFieldInt(s.stepsPerMinute, cfg.stepsPerMinute) { v ->
+                        vm.updatePackage(pkg) { it.copy(stepsPerMinute = v) }
+                    }
+                    NumberFieldLong(s.initialSteps, cfg.initialSteps) { v ->
+                        vm.updatePackage(pkg) { it.copy(initialSteps = v) }
+                    }
+                    Text(s.customPatternHint, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
 
         SectionCard {
@@ -203,15 +228,61 @@ fun PackageConfigScreen(vm: MainViewModel, pkg: String) {
         }
 
         SectionCard {
-            Text(s.routeDiagTitle, style = MaterialTheme.typography.titleMedium)
-            SwitchRow(s.detectHcJetpack, cfg.detectHcJetpack) { vm.updatePackage(pkg) { c -> c.copy(detectHcJetpack = it) } }
-            SwitchRow(s.detectHcFramework, cfg.detectHcFramework) { vm.updatePackage(pkg) { c -> c.copy(detectHcFramework = it) } }
-        }
-
-        SectionCard {
-            Text(s.experimentalTitle, style = MaterialTheme.typography.titleMedium)
-            SwitchRow(s.simAccel, cfg.simAccelerometer) { vm.updatePackage(pkg) { c -> c.copy(simAccelerometer = it) } }
-            SwitchRow(s.simGyro, cfg.simGyroscope) { vm.updatePackage(pkg) { c -> c.copy(simGyroscope = it) } }
+            TextButton(onClick = { advancedExpanded = !advancedExpanded }) {
+                Icon(if (advancedExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(s.advancedControls, style = MaterialTheme.typography.titleMedium)
+                    Text(s.advancedControlsHint, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            AnimatedVisibility(visible = advancedExpanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (cfg.mode == TransformMode.PERSONALIZADO) {
+                        NumberFieldLong(s.offset, cfg.offset) { v ->
+                            vm.updatePackage(pkg) { it.copy(offset = v) }
+                        }
+                        NumberFieldFloat(s.multiplier, cfg.multiplier) { v ->
+                            vm.updatePackage(pkg) { it.copy(multiplier = v) }
+                        }
+                    }
+                    if (cfg.mode != TransformMode.RITMO_SIMULADO && cfg.mode != TransformMode.PERSONALIZADO) {
+                        NumberFieldInt(s.stepsPerMinute, cfg.stepsPerMinute) { v ->
+                            vm.updatePackage(pkg) { it.copy(stepsPerMinute = v) }
+                        }
+                    }
+                    if (cfg.mode == TransformMode.RITMO_SIMULADO || cfg.mode == TransformMode.PERSONALIZADO) {
+                        Text(s.stepVariation, style = MaterialTheme.typography.titleSmall)
+                        Text(s.jitter(cfg.jitterPercent.toInt()))
+                        Slider(value = cfg.jitterPercent,
+                            onValueChange = { v -> vm.updatePackage(pkg) { it.copy(jitterPercent = v) } },
+                            valueRange = 0f..50f)
+                        NumberFieldLong(s.minLimit, cfg.minLimit) { v ->
+                            vm.updatePackage(pkg) { it.copy(minLimit = v) }
+                        }
+                        NumberFieldLong(s.maxLimit, cfg.maxLimit) { v ->
+                            vm.updatePackage(pkg) { it.copy(maxLimit = v) }
+                        }
+                    }
+                    HorizontalDivider()
+                    Text(s.routeDiagTitle, style = MaterialTheme.typography.titleSmall)
+                    SwitchRow(s.detectHcJetpack, cfg.detectHcJetpack) {
+                        vm.updatePackage(pkg) { c -> c.copy(detectHcJetpack = it) }
+                    }
+                    SwitchRow(s.detectHcFramework, cfg.detectHcFramework) {
+                        vm.updatePackage(pkg) { c -> c.copy(detectHcFramework = it) }
+                    }
+                    HorizontalDivider()
+                    Text(s.experimentalTitle, style = MaterialTheme.typography.titleSmall)
+                    SwitchRow(s.simAccel, cfg.simAccelerometer) {
+                        vm.updatePackage(pkg) { c -> c.copy(simAccelerometer = it) }
+                    }
+                    SwitchRow(s.simGyro, cfg.simGyroscope) {
+                        vm.updatePackage(pkg) { c -> c.copy(simGyroscope = it) }
+                    }
+                }
+            }
         }
         Spacer(Modifier.height(16.dp))
     }

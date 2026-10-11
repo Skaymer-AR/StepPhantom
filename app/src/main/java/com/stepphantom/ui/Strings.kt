@@ -60,6 +60,9 @@ interface Strings {
     val stepsPerMinute: String; val initialSteps: String
     fun jitter(n: Int): String
     val minLimit: String; val maxLimit: String
+    val stepVariation: String
+    val realStepsHint: String; val customPatternHint: String
+    val advancedControls: String; val advancedControlsHint: String
     val pause: String; val resetBaseline: String
     val routeDiagTitle: String; val detectHcJetpack: String; val detectHcFramework: String
     val experimentalTitle: String; val simAccel: String; val simGyro: String
@@ -170,6 +173,11 @@ object EnStrings : Strings {
     override fun jitter(n: Int) = "Random step variation: $n%"
     override val minLimit = "Minimum step count"
     override val maxLimit = "Maximum step count (-1 = no limit)"
+    override val stepVariation = "Step count variation"
+    override val realStepsHint = "Pass through the app's real step count without changes."
+    override val customPatternHint = "Adjust extra steps and scale in advanced controls."
+    override val advancedControls = "Advanced controls"
+    override val advancedControlsHint = "Set limits, adjust variation, and configure motion sensors."
     override val pause = "Pause step updates"
     override val resetBaseline = "Restart step session"
     override val routeDiagTitle = "Health Connect checks"
@@ -296,6 +304,11 @@ object EsStrings : Strings {
     override fun jitter(n: Int) = "Variación aleatoria de pasos: $n%"
     override val minLimit = "Cantidad mínima de pasos"
     override val maxLimit = "Cantidad máxima de pasos (-1 = sin límite)"
+    override val stepVariation = "Variación del contador de pasos"
+    override val realStepsHint = "Se usa el contador real de la app sin modificarlo."
+    override val customPatternHint = "Ajustá los pasos extra y la escala en Controles avanzados."
+    override val advancedControls = "Controles avanzados"
+    override val advancedControlsHint = "Definí límites, variación y sensores de movimiento."
     override val pause = "Pausar actualización de pasos"
     override val resetBaseline = "Reiniciar sesión de pasos"
     override val routeDiagTitle = "Comprobaciones de Health Connect"

@@ -17,8 +17,8 @@ android {
         applicationId "com.stepphantom"
         minSdk 29
         targetSdk 36
-        versionCode 3
-        versionName "0.4.1"
+        versionCode 4
+        versionName "0.4.2"
         if (uiConcept == "phantom_console") versionNameSuffix "-ui3-preview"
         buildConfigField "String", "UI_CONCEPT", "\"${uiConcept}\""
     }
