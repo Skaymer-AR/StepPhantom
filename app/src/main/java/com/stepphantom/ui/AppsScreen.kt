@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.stepphantom.config.PackageConfig
 import com.stepphantom.config.TransformMode
+import java.util.Locale
 
 @Composable
 fun AppsScreen(vm: MainViewModel, onOpenConfig: (String) -> Unit) {
@@ -39,10 +40,22 @@ fun AppsScreen(vm: MainViewModel, onOpenConfig: (String) -> Unit) {
 
     LaunchedEffect(includeSystem) { vm.loadApps(includeSystem) }
 
-    val selected = cfg.packages.keys
+    val selected = cfg.packages.keys.toSet()
     val filtered = remember(apps, query) {
         if (query.isBlank()) apps
         else apps.filter { it.label.contains(query, true) || it.packageName.contains(query, true) }
+    }
+    val appOrder = remember { compareBy<AppInfo>({ it.label.lowercase(Locale.ROOT) }, { it.packageName }) }
+    val selectedManual = remember(apps, query, selected) {
+        selected.filter { pkg ->
+            apps.none { it.packageName == pkg } && (query.isBlank() || pkg.contains(query, true))
+        }.sorted()
+    }
+    val selectedInstalled = remember(filtered, selected) {
+        filtered.filter { it.packageName in selected }.sortedWith(appOrder)
+    }
+    val availableApps = remember(filtered, selected) {
+        filtered.filter { it.packageName !in selected }.sortedWith(appOrder)
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -79,21 +92,34 @@ fun AppsScreen(vm: MainViewModel, onOpenConfig: (String) -> Unit) {
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
 
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val manualOnly = selected.filter { sel -> apps.none { it.packageName == sel } }
-            if (manualOnly.isNotEmpty()) {
-                item { Text(s.selectedNotListed, style = MaterialTheme.typography.titleSmall) }
-                items(manualOnly) { pkg ->
+            if (selectedManual.isNotEmpty() || selectedInstalled.isNotEmpty()) {
+                item { Text(s.selectedApps, style = MaterialTheme.typography.titleSmall) }
+                if (selectedManual.isNotEmpty()) {
+                    item { Text(s.selectedNotListed, style = MaterialTheme.typography.labelMedium) }
+                }
+                items(selectedManual) { pkg ->
                     AppRow(pkg, pkg, isSystem = false, icon = null, checked = true,
                         onCheck = { vm.toggleSelected(pkg, it) }, onOpen = { onOpenConfig(pkg) })
                 }
-                item { HorizontalDivider() }
+                items(selectedInstalled) { app ->
+                    val bmp = remember(app.packageName) {
+                        runCatching { app.icon?.toBitmap(96, 96)?.asImageBitmap() }.getOrNull()
+                    }
+                    AppRow(app.label, app.packageName, app.isSystem, bmp, checked = true,
+                        onCheck = { vm.toggleSelected(app.packageName, it) },
+                        onOpen = { onOpenConfig(app.packageName) })
+                }
+                if (availableApps.isNotEmpty()) item { HorizontalDivider() }
             }
-            items(filtered) { app ->
+            if (availableApps.isNotEmpty()) {
+                item { Text(s.availableApps, style = MaterialTheme.typography.titleSmall) }
+            }
+            items(availableApps) { app ->
                 val bmp = remember(app.packageName) {
                     runCatching { app.icon?.toBitmap(96, 96)?.asImageBitmap() }.getOrNull()
                 }
                 AppRow(app.label, app.packageName, app.isSystem, bmp,
-                    checked = app.packageName in selected,
+                    checked = false,
                     onCheck = { vm.toggleSelected(app.packageName, it) },
                     onOpen = { onOpenConfig(app.packageName) })
             }

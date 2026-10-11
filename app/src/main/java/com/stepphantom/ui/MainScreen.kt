@@ -101,7 +101,7 @@ fun MainScreen(vm: MainViewModel, isConsolePreview: Boolean = false) {
                             ) {
                                 Icon(Icons.Rounded.Language, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text(lang.name)
+                                Text(if (lang == Lang.EN) s.english else s.spanish)
                             }
                             DropdownMenu(
                                 expanded = languageMenuExpanded,
