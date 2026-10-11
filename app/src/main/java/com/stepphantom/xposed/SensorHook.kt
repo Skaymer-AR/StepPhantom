@@ -7,6 +7,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEventListener
 import android.os.Build
 import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import com.stepphantom.config.ConfigProvider
 import com.stepphantom.config.DiagnosticsProvider
@@ -54,6 +55,7 @@ class SensorHook : IXposedHookLoadPackage {
     @Volatile private var lastReal = -1L
     @Volatile private var lastFake = -1L
     @Volatile private var lastError = ""
+    @Volatile private var simulationStatus = "sin eventos sintéticos entregados"
 
     override fun handleLoadPackage(lpparam: LoadPackageParam) {
         // Kill switch de emergencia por archivo.
@@ -86,9 +88,11 @@ class SensorHook : IXposedHookLoadPackage {
 
         val onRegister = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) = beforeRegister(param, lpparam)
+            override fun afterHookedMethod(param: MethodHookParam) = afterRegister(param)
         }
         val onUnregister = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) = beforeUnregister(param)
+            override fun afterHookedMethod(param: MethodHookParam) = afterUnregister(param)
         }
 
         hook(cls, cl, "registerListener", onRegister,
@@ -138,7 +142,8 @@ class SensorHook : IXposedHookLoadPackage {
             val sensor = param.args.getOrNull(1) as? Sensor ?: return
             if (sensor.type !in SUPPORTED) return
 
-            val handler = param.args.firstOrNull { it is Handler } as? Handler
+            val handler = (param.args.firstOrNull { it is Handler } as? Handler)
+                ?: runCatching { Handler(Looper.myLooper() ?: Looper.getMainLooper()) }.getOrNull()
             val pkg = lpparam.packageName
             val wrapper = registry.getOrCreate(listener) {
                 SensorListenerWrapper(
@@ -149,12 +154,22 @@ class SensorHook : IXposedHookLoadPackage {
                     onCounterObserved = { real, fake ->
                         lastReal = real; lastFake = fake
                         lastSensorLabel = "STEP_COUNTER"
+                        simulationStatus = "callback completado sin excepción; consumo por la app no confirmado"
+                        pushDiag(ctx, pkg, force = false)
+                    },
+                    onSimulationError = { message ->
+                        simulationStatus = message
+                        lastError = message
                         pushDiag(ctx, pkg, force = false)
                     }
                 )
             }
-            wrapper.onRegistered(sensor, handler)
+            param.setObjectExtra("stepphantom.original.listener", listener)
+            param.setObjectExtra("stepphantom.sensor", sensor)
+            param.setObjectExtra("stepphantom.handler", handler)
+            param.setObjectExtra("stepphantom.package", pkg)
             param.args[0] = wrapper
+            if (sensor.type == Sensor.TYPE_STEP_COUNTER) lastSensorLabel = "STEP_COUNTER"
             if (sensor.type == Sensor.TYPE_STEP_DETECTOR) lastSensorLabel = "STEP_DETECTOR"
             XposedBridge.log("$TAG Envuelto $pkg sensor=${sensorName(sensor.type)}")
         } catch (t: Throwable) {
@@ -163,22 +178,59 @@ class SensorHook : IXposedHookLoadPackage {
         }
     }
 
+    private fun afterRegister(param: XC_MethodHook.MethodHookParam) {
+        try {
+            val wrapper = param.args.getOrNull(0) as? SensorListenerWrapper ?: return
+            val listener = param.getObjectExtra("stepphantom.original.listener") as? SensorEventListener ?: return
+            val sensor = param.getObjectExtra("stepphantom.sensor") as? Sensor ?: return
+            val pkg = param.getObjectExtra("stepphantom.package") as? String ?: return
+            if (param.hasThrowable() || param.result != true) {
+                wrapper.onUnregistered(sensor.type)
+                if (wrapper.isEmpty) registry.remove(listener)
+                simulationStatus = "Android rechazó el registro de ${sensorName(sensor.type)}"
+                lastError = simulationStatus
+                pushDiag(extractContext(param.thisObject), pkg, force = false)
+                return
+            }
+            val handler = param.getObjectExtra("stepphantom.handler") as? Handler
+            wrapper.onRegistered(sensor, handler)
+            simulationStatus = "esperando el primer evento sintético"
+            pushDiag(extractContext(param.thisObject), pkg, force = false)
+        } catch (t: Throwable) {
+            XposedBridge.log("$TAG afterRegister error: $t")
+        }
+    }
+
     private fun beforeUnregister(param: XC_MethodHook.MethodHookParam) {
         try {
             val listener = param.args.getOrNull(0) as? SensorEventListener ?: return
             if (registry.isWrapper(listener)) return
             val wrapper = registry.get(listener) ?: return
+            param.setObjectExtra("stepphantom.original.listener", listener)
             param.args[0] = wrapper
-
-            val sensor = param.args.getOrNull(1) as? Sensor
-            if (sensor == null) {
-                wrapper.stopAll(); registry.remove(listener)
-            } else {
-                wrapper.onUnregistered(sensor.type)
-                if (wrapper.isEmpty) { wrapper.stopAll(); registry.remove(listener) }
-            }
         } catch (t: Throwable) {
             XposedBridge.log("$TAG beforeUnregister error: $t")
+        }
+    }
+
+    private fun afterUnregister(param: XC_MethodHook.MethodHookParam) {
+        try {
+            if (param.hasThrowable()) return
+            val listener = param.getObjectExtra("stepphantom.original.listener") as? SensorEventListener ?: return
+            val wrapper = registry.get(listener) ?: return
+            val sensor = param.args.getOrNull(1) as? Sensor
+            if (sensor == null) {
+                wrapper.stopAll()
+                registry.remove(listener)
+            } else {
+                wrapper.onUnregistered(sensor.type)
+                if (wrapper.isEmpty) {
+                    wrapper.stopAll()
+                    registry.remove(listener)
+                }
+            }
+        } catch (t: Throwable) {
+            XposedBridge.log("$TAG afterUnregister error: $t")
         }
     }
 
@@ -221,7 +273,12 @@ class SensorHook : IXposedHookLoadPackage {
                 put("process", runCatching { AndroidAppHelper.currentProcessName() }.getOrDefault("-"))
                 put("sdkInt", Build.VERSION.SDK_INT)
                 put("sdkExtensions", sdkExtensions())
-                put("route", r?.primaryRouteLabel() ?: "desconocida")
+                put("route", when {
+                    lastSensorLabel != "-" -> "SensorManager: $lastSensorLabel solicitado por la app; Health Connect disponible no confirma uso"
+                    else -> r?.primaryRouteLabel() ?: "desconocida"
+                })
+                put("sensorRequested", lastSensorLabel != "-")
+                put("simulationStatus", simulationStatus)
                 put("hcJetpack", r?.hcJetpack ?: false)
                 put("hcFramework", r?.hcFramework ?: false)
                 put("fitOrRecording", r?.fitOrRecording ?: false)

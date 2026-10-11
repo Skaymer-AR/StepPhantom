@@ -4,7 +4,9 @@ import android.os.SystemClock
 import com.stepphantom.config.PackageConfig
 import com.stepphantom.config.TransformMode
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.ceil
 import kotlin.math.roundToLong
+import kotlin.math.sin
 import kotlin.random.Random
 
 /**
@@ -19,31 +21,41 @@ import kotlin.random.Random
  *  - Sin overflow silencioso (clamp a Long).
  *  - Coherencia temporal con SystemClock.elapsedRealtimeNanos().
  */
-class StepTransformationEngine {
+class StepTransformationEngine(private val nowNanos: () -> Long = { SystemClock.elapsedRealtimeNanos() }) {
 
-    private class Session {
+    private class Session(now: Long) {
+        var lastReal: Long = -1L
         var realBaseline: Long = -1L      // primer valor real observado
         var lastEmitted: Long = -1L       // último valor entregado (para monotonicidad)
-        var startNanos: Long = SystemClock.elapsedRealtimeNanos()
+        var startNanos: Long = now
         var pausedAccumNanos: Long = 0L
         var pauseStartNanos: Long = -1L
         var seed: Long = Random.nextLong()
         var lastResetToken: Long = Long.MIN_VALUE
+        var rhythmSteps: Long = 0L
+        var nextStepAtActiveNanos: Long = -1L
+        var rhythmSpm: Int = -1
     }
+
+    private data class RhythmProgress(val activeNanos: Long, val steps: Long)
 
     private val sessions = ConcurrentHashMap<String, Session>()
 
     private fun session(pkg: String): Session =
-        sessions.getOrPut(pkg) { Session() }
+        sessions.getOrPut(pkg) { Session(nowNanos()) }
 
     private fun maybeReset(s: Session, cfg: PackageConfig) {
         if (cfg.resetToken != s.lastResetToken) {
             s.lastResetToken = cfg.resetToken
             s.realBaseline = -1L
+            s.lastReal = -1L
             s.lastEmitted = -1L
-            s.startNanos = SystemClock.elapsedRealtimeNanos()
+            s.startNanos = nowNanos()
             s.pausedAccumNanos = 0L
             s.pauseStartNanos = -1L
+            s.rhythmSteps = 0L
+            s.nextStepAtActiveNanos = -1L
+            s.rhythmSpm = -1
         }
     }
 
@@ -96,8 +108,9 @@ class StepTransformationEngine {
         val s = session(pkg)
         maybeReset(s, cfg)
         if (s.realBaseline < 0) s.realBaseline = realValue
+        s.lastReal = realValue
         val sessionSteps = (realValue - s.realBaseline).coerceAtLeast(0)
-        val now = SystemClock.elapsedRealtimeNanos()
+        val now = nowNanos()
 
         val raw: Long = when (cfg.mode) {
             TransformMode.ORIGINAL -> realValue
@@ -123,10 +136,15 @@ class StepTransformationEngine {
     fun syntheticCounter(pkg: String, cfg: PackageConfig): Long {
         val s = session(pkg)
         maybeReset(s, cfg)
-        val now = SystemClock.elapsedRealtimeNanos()
+        val now = nowNanos()
         val raw = when (cfg.mode) {
             TransformMode.REEMPLAZAR -> cfg.replaceValue
             TransformMode.RITMO_SIMULADO -> rhythmValue(cfg, s, now)
+            TransformMode.PERSONALIZADO -> {
+                val steps = if (s.realBaseline < 0) 0L else (s.lastReal - s.realBaseline).coerceAtLeast(0L)
+                val base = safeAdd(cfg.initialSteps, safeMul(steps, cfg.multiplier))
+                applyLimitsAndJitter(cfg, s, safeAdd(safeAdd(base, cfg.offset), rhythmDelta(cfg, s, now)))
+            }
             else -> s.lastEmitted.coerceAtLeast(0) // otros modos no se sintetizan
         }
         return enforceMonotonic(s, raw)
@@ -134,21 +152,37 @@ class StepTransformationEngine {
 
     /** ¿Este modo necesita empuje activo del scheduler aunque no haya movimiento? */
     fun needsScheduler(cfg: PackageConfig): Boolean =
-        cfg.mode == TransformMode.REEMPLAZAR || cfg.mode == TransformMode.RITMO_SIMULADO
+        cfg.mode == TransformMode.REEMPLAZAR || cfg.mode == TransformMode.RITMO_SIMULADO ||
+            (cfg.mode == TransformMode.PERSONALIZADO && cfg.stepsPerMinute > 0)
 
-    /** Milisegundos entre pasos para TYPE_STEP_DETECTOR sintético (RITMO_SIMULADO). */
-    fun detectorIntervalMs(cfg: PackageConfig): Long {
-        if (cfg.paused || cfg.stepsPerMinute <= 0) return Long.MAX_VALUE / 4
-        return (60_000.0 / cfg.stepsPerMinute).toLong().coerceAtLeast(50L)
+    /**
+     * Tiempo hasta el siguiente paso simulado. El contador y el detector usan
+     * los mismos límites de paso para que TYPE_STEP_COUNTER avance una unidad
+     * por cada evento TYPE_STEP_DETECTOR. Mientras está pausado, el scheduler
+     * consulta la configuración cada segundo sin emitir muestras repetidas.
+     */
+    @Synchronized
+    fun nextStepDelayMs(pkg: String, cfg: PackageConfig): Long {
+        if (cfg.paused || cfg.stepsPerMinute <= 0 || !needsScheduler(cfg) ||
+            (cfg.mode != TransformMode.RITMO_SIMULADO && cfg.mode != TransformMode.PERSONALIZADO)
+        ) return 1_000L
+
+        val s = session(pkg)
+        maybeReset(s, cfg)
+        val progress = rhythmProgress(s, cfg, nowNanos())
+        val remaining = (s.nextStepAtActiveNanos - progress.activeNanos).coerceAtLeast(1L)
+        return ceil(remaining / 1_000_000.0).toLong().coerceIn(1L, 60_000L)
     }
 
     // -----------------------------------------------------------------
     // Acelerómetro / giroscopio (experimental, opcional)
     // -----------------------------------------------------------------
 
+    @Synchronized
     fun fillAccelerometer(pkg: String, cfg: PackageConfig, out: FloatArray) {
         val s = session(pkg)
-        val now = SystemClock.elapsedRealtimeNanos()
+        maybeReset(s, cfg)
+        val now = nowNanos()
         val g = 9.81f
         if (cfg.paused || cfg.stepsPerMinute <= 0) {
             out[0] = 0f; out[1] = 0f; out[2] = g; return
@@ -161,10 +195,12 @@ class StepTransformationEngine {
         out[2] = g + (1.4 * Math.sin(phase)).toFloat()
     }
 
+    @Synchronized
     fun fillGyroscope(pkg: String, cfg: PackageConfig, out: FloatArray) {
         val s = session(pkg)
-        val now = SystemClock.elapsedRealtimeNanos()
-        if (cfg.paused) { out[0] = 0f; out[1] = 0f; out[2] = 0f; return }
+        maybeReset(s, cfg)
+        val now = nowNanos()
+        if (cfg.paused || cfg.stepsPerMinute <= 0) { out[0] = 0f; out[1] = 0f; out[2] = 0f; return }
         val freq = (cfg.stepsPerMinute / 60.0).coerceAtLeast(0.5)
         val t = activeNanos(s, cfg, now) / 1_000_000_000.0
         val phase = 2.0 * Math.PI * freq * t
@@ -178,8 +214,48 @@ class StepTransformationEngine {
     // -----------------------------------------------------------------
 
     private fun rhythmDelta(cfg: PackageConfig, s: Session, now: Long): Long {
-        val minutes = activeNanos(s, cfg, now) / 60_000_000_000.0
-        return (minutes * cfg.stepsPerMinute.coerceAtLeast(0)).toLong().coerceAtLeast(0)
+        return rhythmProgress(s, cfg, now).steps
+    }
+
+    /**
+     * Avanza un paso por cada intervalo de marcha. La variación determinística
+     * pequeña evita un metrónomo perfecto, conserva el promedio configurado y
+     * permite que el contador y el detector compartan una sola cadencia.
+     */
+    private fun rhythmProgress(s: Session, cfg: PackageConfig, now: Long): RhythmProgress {
+        val active = activeNanos(s, cfg, now)
+        val spm = cfg.stepsPerMinute
+        if (spm <= 0) return RhythmProgress(active, s.rhythmSteps)
+
+        if (s.rhythmSpm != spm || s.nextStepAtActiveNanos < 0L) {
+            s.rhythmSpm = spm
+            s.nextStepAtActiveNanos = safeAdd(
+                active,
+                stepIntervalNanos(s, s.rhythmSteps + 1L, spm)
+            )
+        }
+
+        while (active >= s.nextStepAtActiveNanos && s.rhythmSteps < Long.MAX_VALUE) {
+            s.rhythmSteps += 1L
+            val interval = stepIntervalNanos(s, s.rhythmSteps + 1L, spm)
+            val next = safeAdd(s.nextStepAtActiveNanos, interval)
+            if (next <= s.nextStepAtActiveNanos) {
+                s.nextStepAtActiveNanos = Long.MAX_VALUE
+                break
+            }
+            s.nextStepAtActiveNanos = next
+        }
+        return RhythmProgress(active, s.rhythmSteps)
+    }
+
+    private fun stepIntervalNanos(s: Session, stepIndex: Long, stepsPerMinute: Int): Long {
+        val base = 60_000_000_000.0 / stepsPerMinute.coerceAtLeast(1)
+        val random = Random(s.seed xor (stepIndex * 1_000_003L))
+        val randomVariation = (random.nextDouble() - 0.5) * 0.08 // ±4%
+        val strideWave = sin(stepIndex / 6.0) * 0.025
+        return (base * (1.0 + randomVariation + strideWave))
+            .roundToLong()
+            .coerceAtLeast(50_000_000L)
     }
 
     private fun rhythmValue(cfg: PackageConfig, s: Session, now: Long): Long {

@@ -25,9 +25,9 @@ object RouteDetector {
         val classesFound: List<String>
     ) {
         fun primaryRouteLabel(): String = when {
-            hcJetpack -> "Health Connect (Jetpack) — este módulo NO la reescribe"
-            fitOrRecording -> "Google Fit / Recording API — este módulo NO la reescribe"
-            hcFramework -> "Health Connect (framework) — disponible en el SO; verificá si la app la usa"
+            hcJetpack -> "Clases de Health Connect Jetpack presentes; uso por la app no confirmado"
+            fitOrRecording -> "Clases de Fit/Recording presentes; uso por la app no confirmado"
+            hcFramework -> "Health Connect framework disponible en Android; uso por la app no confirmado"
             sensorManagerAvailable -> "SensorManager (interceptable por este módulo)"
             else -> "desconocida"
         }

@@ -43,9 +43,10 @@ sealed interface Dest {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(vm: MainViewModel) {
+fun MainScreen(vm: MainViewModel, isConsolePreview: Boolean = false) {
     val s = LocalStrings.current
     val lang by vm.language.collectAsState()
+    var languageMenuExpanded by rememberSaveable { mutableStateOf(false) }
 
     var dest by rememberSaveable(
         stateSaver = androidx.compose.runtime.saveable.Saver(
@@ -83,15 +84,44 @@ fun MainScreen(vm: MainViewModel) {
                     )
                 )
                 else -> CenterAlignedTopAppBar(
-                    title = { Text(s.brand, style = MaterialTheme.typography.titleLarge) },
+                    title = {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(s.brand, style = MaterialTheme.typography.titleLarge)
+                            if (isConsolePreview) {
+                                Text(s.previewLabel, style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    },
                     actions = {
-                        FilledTonalButton(
-                            onClick = { vm.toggleLanguage() },
-                            contentPadding = PaddingValues(horizontal = 12.dp)
-                        ) {
-                            Icon(Icons.Rounded.Language, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(if (lang == Lang.ES) "EN" else "ES")
+                        Box {
+                            FilledTonalButton(
+                                onClick = { languageMenuExpanded = true },
+                                contentPadding = PaddingValues(horizontal = 12.dp)
+                            ) {
+                                Icon(Icons.Rounded.Language, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(lang.name)
+                            }
+                            DropdownMenu(
+                                expanded = languageMenuExpanded,
+                                onDismissRequest = { languageMenuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(s.english) },
+                                    onClick = {
+                                        vm.setLanguage(Lang.EN)
+                                        languageMenuExpanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(s.spanish) },
+                                    onClick = {
+                                        vm.setLanguage(Lang.ES)
+                                        languageMenuExpanded = false
+                                    }
+                                )
+                            }
                         }
                         Spacer(Modifier.width(8.dp))
                     },
@@ -121,7 +151,7 @@ fun MainScreen(vm: MainViewModel) {
                 label = "screen"
             ) { d ->
                 when (d) {
-                    Dest.Home -> HomeScreen(vm)
+                    Dest.Home -> HomeScreen(vm, onOpenApps = { dest = Dest.Apps })
                     Dest.Apps -> AppsScreen(vm, onOpenConfig = { dest = Dest.PkgConfig(it) })
                     Dest.Health -> HealthConnectScreen(vm)
                     Dest.Diag -> DiagnosticsScreen(vm)
@@ -147,21 +177,94 @@ private fun RowScope.navItem(current: Dest, target: Dest, label: String, icon: I
 /* ------------------------------ Inicio ------------------------------ */
 
 @Composable
-fun HomeScreen(vm: MainViewModel) {
+fun HomeScreen(vm: MainViewModel, onOpenApps: () -> Unit) {
     val s = LocalStrings.current
     val cfg by vm.config.collectAsState()
-    val selected = cfg.packages.size
-    val enabled = cfg.packages.values.count { it.enabled }
+    val profiles = cfg.packages.toSortedMap()
+    val selected = profiles.size
+    val enabled = profiles.values.count { it.enabled && !it.paused }
+    val enabledRatio = if (selected == 0) 0f else enabled.toFloat() / selected
 
     ScrollColumn {
-        HeroHeader(s.brand, s.homeSubtitle)
+        Text(s.homeTitle, style = MaterialTheme.typography.headlineSmall)
+        Text(s.homeSubtitle, style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-        ToneCard(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatPill("$selected", s.navApps, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
-                StatPill("$enabled", "on", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        SectionCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(s.homeProfilesTitle, style = MaterialTheme.typography.titleMedium)
+                    Text("$enabled", style = MaterialTheme.typography.displayLarge,
+                        color = MaterialTheme.colorScheme.primary)
+                    Text(s.homeProfilesCount(enabled, selected),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Box(Modifier.size(112.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        progress = { enabledRatio.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        strokeWidth = 9.dp
+                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("$selected", style = MaterialTheme.typography.titleLarge)
+                        Text(s.navApps, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
-            Text(s.homeRoute, style = MaterialTheme.typography.bodySmall)
+        }
+
+        SectionCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(s.homeTargetsTitle, Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium)
+                FilledTonalButton(onClick = onOpenApps) {
+                    Icon(Icons.Rounded.Apps, contentDescription = null,
+                        modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(s.homeConfigureApps)
+                }
+            }
+            if (profiles.isEmpty()) {
+                Text(s.homeNoTargets, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                profiles.entries.take(3).forEach { (packageName, packageConfig) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(packageName, style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1)
+                            val status = when {
+                                !packageConfig.enabled -> s.homeDisabledStatus
+                                packageConfig.paused -> s.homePausedStatus
+                                else -> s.homeEnabledStatus
+                            }
+                            Text(
+                                status,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (packageConfig.enabled && !packageConfig.paused) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            imageVector = if (packageConfig.enabled) Icons.Rounded.Insights else Icons.Rounded.Settings,
+                            contentDescription = null,
+                            tint = if (packageConfig.enabled && !packageConfig.paused) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                if (selected > 3) {
+                    Text(s.homeMoreTargets(selected - 3),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
 
         WarnCard(s.scopeWarning)
@@ -174,6 +277,12 @@ fun HomeScreen(vm: MainViewModel) {
         ToneCard(MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer) {
             Text(s.presetTitle, style = MaterialTheme.typography.titleMedium)
             Text(s.presetBody, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        SectionCard {
+            Text(s.homeSelected(selected, enabled), style = MaterialTheme.typography.bodySmall)
+            Text(s.homeRoute, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

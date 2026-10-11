@@ -19,21 +19,30 @@ import java.lang.reflect.Constructor
  */
 object SensorEventFactory {
 
+    @Volatile private var failure: String? = null
+
     private val ctor: Constructor<SensorEvent>? = try {
         SensorEvent::class.java
             .getDeclaredConstructor(Integer.TYPE)
             .also { it.isAccessible = true }
     } catch (t: Throwable) {
-        XposedBridge.log("[StepPhantom] SensorEvent(int) no disponible por reflexión: $t")
+        failure = "SensorEvent(int) no está disponible: ${t.javaClass.simpleName}"
+        XposedBridge.log("[StepPhantom] ${failure}")
         null
     }
 
     val available: Boolean get() = ctor != null
 
-    fun tryCreate(valueSize: Int): SensorEvent? = try {
-        ctor?.newInstance(valueSize)
-    } catch (t: Throwable) {
-        XposedBridge.log("[StepPhantom] Falló construir SensorEvent: $t")
-        null
+    fun failureDescription(): String = failure ?: "No se pudo construir SensorEvent (API oculta)"
+
+    fun tryCreate(valueSize: Int): SensorEvent? {
+        return try {
+            val constructor = ctor ?: return null
+            constructor.newInstance(valueSize)
+        } catch (t: Throwable) {
+            failure = "No se pudo construir SensorEvent: ${t.javaClass.simpleName}"
+            XposedBridge.log("[StepPhantom] ${failure}")
+            null
+        }
     }
 }

@@ -40,6 +40,7 @@ private fun DiagCard(s: Strings, pkg: String, json: String) {
         Line(s.dLastSensor, o.optString("lastSensor", "-"))
         Line(s.dRealValue, o.optLong("realValue", -1).let { if (it < 0) "—" else it.toString() })
         Line(s.dFakeValue, o.optLong("fakeValue", -1).let { if (it < 0) "—" else it.toString() })
+        Line(s.dSimulationStatus, o.optString("simulationStatus", "sin confirmar"))
         Line(s.dUid, o.optInt("uid", -1).toString())
         Line(s.dProcess, o.optString("process", "-"))
         Line(s.dSdk, "${o.optInt("sdkInt", 0)} (ext ${o.optString("sdkExtensions", "-")})")

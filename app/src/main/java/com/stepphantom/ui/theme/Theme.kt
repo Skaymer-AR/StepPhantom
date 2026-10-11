@@ -1,73 +1,71 @@
 package com.stepphantom.ui.theme
 
 import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Paleta expresiva propia (para Android < 12 o con color dinámico apagado):
-// violeta + turquesa + naranja, bien saturada.
-private val LightExpressive = lightColorScheme(
-    primary = Color(0xFF7A34E8),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFEBDCFF),
-    onPrimaryContainer = Color(0xFF25005A),
-    secondary = Color(0xFF00A99D),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFB3F1E8),
-    onSecondaryContainer = Color(0xFF00201D),
-    tertiary = Color(0xFFFF7A1A),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFFFDCC5),
-    onTertiaryContainer = Color(0xFF2E1500),
-    error = Color(0xFFBA1A1A),
-    errorContainer = Color(0xFFFFDAD6),
-    onErrorContainer = Color(0xFF410002),
-    background = Color(0xFFFDF7FF),
-    onBackground = Color(0xFF1D1B20),
-    surface = Color(0xFFFDF7FF),
-    onSurface = Color(0xFF1D1B20),
-    surfaceVariant = Color(0xFFE7E0EB),
-    onSurfaceVariant = Color(0xFF49454E),
-    outline = Color(0xFF7A757F)
+// Opción 2: superficies oscuras, verde bosque y menta con contraste alto.
+private val DarkClearMotion = darkColorScheme(
+    primary = Color(0xFF72E3AD),
+    onPrimary = Color(0xFF003921),
+    primaryContainer = Color(0xFF075D3D),
+    onPrimaryContainer = Color(0xFFB8F3D4),
+    secondary = Color(0xFFB4DCC5),
+    onSecondary = Color(0xFF19382A),
+    secondaryContainer = Color(0xFF284B39),
+    onSecondaryContainer = Color(0xFFD0F0DC),
+    tertiary = Color(0xFFF2C878),
+    onTertiary = Color(0xFF402D00),
+    tertiaryContainer = Color(0xFF5B4300),
+    onTertiaryContainer = Color(0xFFFFE2A5),
+    error = Color(0xFFFFB4AB),
+    errorContainer = Color(0xFF690005),
+    onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF07140F),
+    onBackground = Color(0xFFE3F2E9),
+    surface = Color(0xFF0D1D16),
+    onSurface = Color(0xFFE3F2E9),
+    surfaceVariant = Color(0xFF1C3429),
+    onSurfaceVariant = Color(0xFFB7CFC0),
+    outline = Color(0xFF526D5C)
 )
 
-private val DarkExpressive = darkColorScheme(
-    primary = Color(0xFFD3BBFF),
-    onPrimary = Color(0xFF3D0088),
-    primaryContainer = Color(0xFF5A1CC0),
-    onPrimaryContainer = Color(0xFFEBDCFF),
-    secondary = Color(0xFF54D8CB),
-    onSecondary = Color(0xFF003733),
-    secondaryContainer = Color(0xFF00504A),
-    onSecondaryContainer = Color(0xFFB3F1E8),
-    tertiary = Color(0xFFFFB68A),
-    onTertiary = Color(0xFF4C2200),
-    tertiaryContainer = Color(0xFF6D3300),
-    onTertiaryContainer = Color(0xFFFFDCC5),
+// Opción 3: consola oscura de alto contraste para compilar como vista previa.
+private val DarkPhantomConsole = darkColorScheme(
+    primary = Color(0xFFB4FF52),
+    onPrimary = Color(0xFF203600),
+    primaryContainer = Color(0xFF375900),
+    onPrimaryContainer = Color(0xFFD8FFAA),
+    secondary = Color(0xFF55E7FF),
+    onSecondary = Color(0xFF003640),
+    secondaryContainer = Color(0xFF004F5B),
+    onSecondaryContainer = Color(0xFFB7F2FF),
+    tertiary = Color(0xFFFFC04D),
+    onTertiary = Color(0xFF402D00),
+    tertiaryContainer = Color(0xFF5B4300),
+    onTertiaryContainer = Color(0xFFFFE2A4),
     error = Color(0xFFFFB4AB),
-    errorContainer = Color(0xFF93000A),
+    errorContainer = Color(0xFF690005),
     onErrorContainer = Color(0xFFFFDAD6),
-    background = Color(0xFF141218),
-    onBackground = Color(0xFFE6E1E9),
-    surface = Color(0xFF141218),
-    onSurface = Color(0xFFE6E1E9),
-    surfaceVariant = Color(0xFF49454E),
-    onSurfaceVariant = Color(0xFFCAC4CF),
-    outline = Color(0xFF948F99)
+    background = Color(0xFF080C0D),
+    onBackground = Color(0xFFE5ECEB),
+    surface = Color(0xFF101718),
+    onSurface = Color(0xFFE5ECEB),
+    surfaceVariant = Color(0xFF202A2B),
+    onSurfaceVariant = Color(0xFFB8C7C8),
+    outline = Color(0xFF536466)
 )
 
 // Tipografía expresiva: titulares grandes y con más peso.
@@ -87,20 +85,38 @@ private val ExpressiveShapes = Shapes(
     extraLarge = RoundedCornerShape(32.dp)
 )
 
+private val ConsoleType = ExpressiveType.copy(
+    headlineSmall = ExpressiveType.headlineSmall.copy(fontFamily = FontFamily.Monospace),
+    titleLarge = ExpressiveType.titleLarge.copy(fontFamily = FontFamily.Monospace),
+    titleMedium = ExpressiveType.titleMedium.copy(fontFamily = FontFamily.Monospace),
+    labelLarge = ExpressiveType.labelLarge.copy(fontFamily = FontFamily.Monospace)
+)
+
+private val ConsoleShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(18.dp),
+    extraLarge = RoundedCornerShape(24.dp)
+)
+
 @Composable
-fun StepPhantomTheme(useDynamicColor: Boolean, content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+fun StepPhantomTheme(
+    useDynamicColor: Boolean,
+    useConsoleStyle: Boolean,
+    content: @Composable () -> Unit
+) {
     val context = LocalContext.current
     val colors = when {
+        useConsoleStyle -> DarkPhantomConsole
         useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> DarkExpressive
-        else -> LightExpressive
+            dynamicDarkColorScheme(context)
+        else -> DarkClearMotion
     }
     MaterialTheme(
         colorScheme = colors,
-        typography = ExpressiveType,
-        shapes = ExpressiveShapes,
+        typography = if (useConsoleStyle) ConsoleType else ExpressiveType,
+        shapes = if (useConsoleStyle) ConsoleShapes else ExpressiveShapes,
         content = content
     )
 }

@@ -13,7 +13,7 @@ class UiPreferences(context: Context) {
     private val _language = MutableStateFlow(loadLang())
     val language: StateFlow<Lang> = _language
 
-    private val _dynamicColor = MutableStateFlow(prefs.getBoolean(KEY_DYNAMIC, true))
+    private val _dynamicColor = MutableStateFlow(prefs.getBoolean(KEY_DYNAMIC, false))
     val dynamicColor: StateFlow<Boolean> = _dynamicColor
 
     fun setLanguage(lang: Lang) {
@@ -27,7 +27,7 @@ class UiPreferences(context: Context) {
     }
 
     private fun loadLang(): Lang =
-        runCatching { Lang.valueOf(prefs.getString(KEY_LANG, Lang.ES.name)!!) }.getOrDefault(Lang.ES)
+        runCatching { Lang.valueOf(prefs.getString(KEY_LANG, Lang.EN.name)!!) }.getOrDefault(Lang.EN)
 
     companion object {
         private const val KEY_LANG = "lang"

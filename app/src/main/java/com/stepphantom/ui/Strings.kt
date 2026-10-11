@@ -7,14 +7,25 @@ enum class Lang { ES, EN }
 /** Todos los textos de la UI. Dos implementaciones (EN/ES) y cambio en vivo vía LocalStrings. */
 interface Strings {
     val brand: String
+    val previewLabel: String
 
     // Nav
     val navHome: String; val navApps: String; val navHealth: String
     val navDiag: String; val navSettings: String
 
     // Home
+    val homeTitle: String
     val homeSubtitle: String
     fun homeSelected(apps: Int, enabled: Int): String
+    val homeProfilesTitle: String
+    fun homeProfilesCount(enabled: Int, selected: Int): String
+    val homeTargetsTitle: String
+    val homeNoTargets: String
+    val homeEnabledStatus: String
+    val homePausedStatus: String
+    val homeDisabledStatus: String
+    val homeConfigureApps: String
+    fun homeMoreTargets(count: Int): String
     val homeRoute: String
     val scopeWarning: String
     val howToActivate: String
@@ -69,7 +80,7 @@ interface Strings {
     val clear: String
     val diagIntro: String
     val diagEmpty: String
-    val dRoute: String; val dLastSensor: String; val dRealValue: String; val dFakeValue: String
+    val dRoute: String; val dLastSensor: String; val dRealValue: String; val dFakeValue: String; val dSimulationStatus: String
     val dUid: String; val dProcess: String; val dSdk: String
     val dHcJetpack: String; val dHcFramework: String; val dFitRecording: String
     val dClasses: String; val dLastError: String; val dUpdated: String
@@ -93,12 +104,23 @@ interface Strings {
 
 object EnStrings : Strings {
     override val brand = "StepPhantom"
+    override val previewLabel = "UI 3 TEST"
 
     override val navHome = "Home"; override val navApps = "Apps"; override val navHealth = "Health"
     override val navDiag = "Diag"; override val navSettings = "Settings"
 
+    override val homeTitle = "Overview"
     override val homeSubtitle = "LSPosed / Vector module · Android 16 · experimental"
-    override fun homeSelected(apps: Int, enabled: Int) = "Selected apps: $apps · module active: $enabled"
+    override fun homeSelected(apps: Int, enabled: Int) = "Selected apps: $apps · enabled profiles: $enabled"
+    override val homeProfilesTitle = "Profiles enabled"
+    override fun homeProfilesCount(enabled: Int, selected: Int) = "$enabled of $selected profiles enabled"
+    override val homeTargetsTitle = "Selected test apps"
+    override val homeNoTargets = "Choose a test app to create its sensor profile."
+    override val homeEnabledStatus = "Profile enabled"
+    override val homePausedStatus = "Paused"
+    override val homeDisabledStatus = "Disabled"
+    override val homeConfigureApps = "Configure apps"
+    override fun homeMoreTargets(count: Int) = "+ $count more"
     override val homeRoute = "Implemented route: SensorManager. Health Connect: diagnostics only (not rewritten)."
     override val scopeWarning = "You also have to select these apps in the LSPosed / Vector Scope. " +
         "StepPhantom cannot change the Scope automatically with the classic API."
@@ -177,7 +199,7 @@ object EnStrings : Strings {
         "LSPosed/Vector log and logcat (filter \"[StepPhantom]\")."
     override val diagEmpty = "No diagnostics yet."
     override val dRoute = "Detected route"; override val dLastSensor = "Last sensor"
-    override val dRealValue = "Real value"; override val dFakeValue = "Simulated value"
+    override val dRealValue = "Real value"; override val dFakeValue = "Simulated value"; override val dSimulationStatus = "Synthetic event status"
     override val dUid = "UID"; override val dProcess = "Process"; override val dSdk = "SDK"
     override val dHcJetpack = "HC Jetpack"; override val dHcFramework = "HC framework"
     override val dFitRecording = "Fit/Recording"
@@ -187,7 +209,7 @@ object EnStrings : Strings {
     override val language = "Language"; override val spanish = "Español"; override val english = "English"
     override val appearance = "Appearance"
     override val dynamicColor = "Dynamic color (Material You)"
-    override val dynamicColorSub = "Uses your wallpaper colors on Android 12+. Off = built-in expressive palette."
+    override val dynamicColorSub = "Optional wallpaper accents on Android 12+. Off keeps the forest-green palette."
     override val jsonConfig = "JSON configuration"
     override val export = "Export"; override val importLabel = "Import"
     override val killSwitch = "Emergency kill switch"
@@ -207,12 +229,23 @@ object EnStrings : Strings {
 
 object EsStrings : Strings {
     override val brand = "StepPhantom"
+    override val previewLabel = "PRUEBA UI 3"
 
     override val navHome = "Inicio"; override val navApps = "Apps"; override val navHealth = "Health"
     override val navDiag = "Diag"; override val navSettings = "Ajustes"
 
+    override val homeTitle = "Resumen"
     override val homeSubtitle = "Módulo LSPosed / Vector · Android 16 · experimental"
-    override fun homeSelected(apps: Int, enabled: Int) = "Apps seleccionadas: $apps · con módulo activo: $enabled"
+    override fun homeSelected(apps: Int, enabled: Int) = "Apps seleccionadas: $apps · perfiles habilitados: $enabled"
+    override val homeProfilesTitle = "Perfiles habilitados"
+    override fun homeProfilesCount(enabled: Int, selected: Int) = "$enabled de $selected perfiles habilitados"
+    override val homeTargetsTitle = "Apps de prueba seleccionadas"
+    override val homeNoTargets = "Elegí una app de prueba para crear su perfil de sensores."
+    override val homeEnabledStatus = "Perfil habilitado"
+    override val homePausedStatus = "En pausa"
+    override val homeDisabledStatus = "Desactivado"
+    override val homeConfigureApps = "Configurar apps"
+    override fun homeMoreTargets(count: Int) = "+ $count más"
     override val homeRoute = "Ruta implementada: SensorManager. Health Connect: sólo diagnóstico (no se reescribe)."
     override val scopeWarning = "También tenés que seleccionar estas apps en el Scope de LSPosed / Vector. " +
         "StepPhantom NO puede cambiar el Scope automáticamente con la API clásica."
@@ -291,7 +324,7 @@ object EsStrings : Strings {
         "log de LSPosed/Vector y en logcat (filtrá \"[StepPhantom]\")."
     override val diagEmpty = "Sin diagnósticos todavía."
     override val dRoute = "Vía detectada"; override val dLastSensor = "Último sensor"
-    override val dRealValue = "Valor real"; override val dFakeValue = "Valor simulado"
+    override val dRealValue = "Valor real"; override val dFakeValue = "Valor simulado"; override val dSimulationStatus = "Estado del evento sintético"
     override val dUid = "UID"; override val dProcess = "Proceso"; override val dSdk = "SDK"
     override val dHcJetpack = "HC Jetpack"; override val dHcFramework = "HC framework"
     override val dFitRecording = "Fit/Recording"
@@ -301,7 +334,7 @@ object EsStrings : Strings {
     override val language = "Idioma"; override val spanish = "Español"; override val english = "English"
     override val appearance = "Apariencia"
     override val dynamicColor = "Color dinámico (Material You)"
-    override val dynamicColorSub = "Usa los colores de tu wallpaper en Android 12+. Apagado = paleta expresiva propia."
+    override val dynamicColorSub = "Acentos opcionales del wallpaper en Android 12+. Apagado mantiene la paleta verde."
     override val jsonConfig = "Configuración JSON"
     override val export = "Exportar"; override val importLabel = "Importar"
     override val killSwitch = "Kill switch de emergencia"

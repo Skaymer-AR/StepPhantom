@@ -26,9 +26,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             val lang by viewModel.language.collectAsState()
             val dynamic by viewModel.dynamicColor.collectAsState()
-            StepPhantomTheme(useDynamicColor = dynamic) {
+            val consolePreview = BuildConfig.UI_CONCEPT == "phantom_console"
+            StepPhantomTheme(useDynamicColor = dynamic, useConsoleStyle = consolePreview) {
                 CompositionLocalProvider(LocalStrings provides stringsFor(lang)) {
-                    MainScreen(viewModel)
+                    MainScreen(viewModel, isConsolePreview = consolePreview)
                 }
             }
         }

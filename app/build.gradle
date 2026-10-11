@@ -4,6 +4,11 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+def uiConcept = project.findProperty("uiConcept") ?: "clear_motion"
+if (!(uiConcept in ["clear_motion", "phantom_console"])) {
+    throw new GradleException("Unknown uiConcept: ${uiConcept}")
+}
+
 android {
     namespace 'com.stepphantom'
     compileSdk 36
@@ -12,8 +17,10 @@ android {
         applicationId "com.stepphantom"
         minSdk 29
         targetSdk 36
-        versionCode 1
-        versionName "0.3-expressive"
+        versionCode 2
+        versionName "0.4.0"
+        if (uiConcept == "phantom_console") versionNameSuffix "-ui3-preview"
+        buildConfigField "String", "UI_CONCEPT", "\"${uiConcept}\""
     }
 
     buildTypes {
@@ -54,6 +61,8 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
     implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+
+    testImplementation 'junit:junit:4.13.2'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }
