@@ -52,10 +52,14 @@ si el hook de sensores va a servir o no en cada app.
   `QUERY_ALL_PACKAGES`, búsqueda, filtro sistema, alta manual con validación,
   copiar selección, config separada por paquete. Deja claro que **también** hay
   que marcar la app en el Scope de LSPosed/Vector (la API clásica no cambia scope).
-- **Capa 2 — Motor** (`engine/StepTransformationEngine.kt`): 6 modos (ORIGINAL,
-  SUMAR, MULTIPLICAR, REEMPLAZAR, RITMO_SIMULADO, PERSONALIZADO), contador
+- **Capa 2 — Motor** (`engine/StepTransformationEngine.kt`): 7 modos (ORIGINAL,
+  SUMAR, MULTIPLICAR, REEMPLAZAR, RITMO_SIMULADO, PERSONALIZADO,
+  OBJETIVO_PROGRAMADO), contador
   monotónico, baseline real + simulado, sin doble aplicación, sin negativos, sin
   overflow, coherencia con `elapsedRealtimeNanos`.
+  `OBJETIVO_PROGRAMADO` reparte una meta diaria durante una franja horaria local
+  configurable (también puede cruzar medianoche) y sincroniza el contador con el
+  detector de pasos.
 - **Capa 3 — Hooks** (`xposed/`): `SensorHook` (entry `IXposedHookLoadPackage`),
   `SensorListenerWrapper`, `ListenerRegistry`, `RouteDetector`, `SensorEventFactory`.
 

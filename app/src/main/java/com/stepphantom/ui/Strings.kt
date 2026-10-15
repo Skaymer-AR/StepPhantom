@@ -53,11 +53,13 @@ interface Strings {
     val hookSensorManager: String
     val mode: String
     val modeOriginal: String; val modeAdd: String; val modeMultiply: String
-    val modeReplace: String; val modeRhythm: String; val modeCustom: String
+    val modeReplace: String; val modeRhythm: String; val modeCustom: String; val modeScheduledGoal: String
     val preset487: String
     val params: String
     val offset: String; val multiplier: String; val replaceValue: String
     val stepsPerMinute: String; val initialSteps: String
+    val scheduledGoal: String; val scheduledStartTime: String; val scheduledEndTime: String
+    val scheduledSummary: String; val scheduledNextDayHint: String
     fun jitter(n: Int): String
     val minLimit: String; val maxLimit: String
     val stepVariation: String
@@ -163,6 +165,7 @@ object EnStrings : Strings {
     override val modeReplace = "Set a target count"
     override val modeRhythm = "Simulated walking pace"
     override val modeCustom = "Custom step pattern"
+    override val modeScheduledGoal = "Daily goal by schedule"
     override val preset487 = "Try an example: 4 → 87"
     override val params = "Step settings"
     override val offset = "Additional steps"
@@ -170,6 +173,11 @@ object EnStrings : Strings {
     override val replaceValue = "Target step count"
     override val stepsPerMinute = "Walking pace (steps/min)"
     override val initialSteps = "Starting step count"
+    override val scheduledGoal = "Daily step goal"
+    override val scheduledStartTime = "Start time"
+    override val scheduledEndTime = "End time"
+    override val scheduledSummary = "Steps increase gradually during this window and reach the goal at the end. The schedule repeats daily."
+    override val scheduledNextDayHint = "If the end time is earlier than the start, the window continues into the next day."
     override fun jitter(n: Int) = "Random step variation: $n%"
     override val minLimit = "Minimum step count"
     override val maxLimit = "Maximum step count (-1 = no limit)"
@@ -294,6 +302,7 @@ object EsStrings : Strings {
     override val modeReplace = "Fijar una cantidad objetivo"
     override val modeRhythm = "Ritmo de caminata simulado"
     override val modeCustom = "Ritmo personalizado"
+    override val modeScheduledGoal = "Objetivo diario por horario"
     override val preset487 = "Probar ejemplo: 4 → 87"
     override val params = "Ajustes de pasos"
     override val offset = "Pasos adicionales"
@@ -301,6 +310,11 @@ object EsStrings : Strings {
     override val replaceValue = "Cantidad objetivo de pasos"
     override val stepsPerMinute = "Ritmo de caminata (pasos/min)"
     override val initialSteps = "Cantidad inicial de pasos"
+    override val scheduledGoal = "Objetivo diario de pasos"
+    override val scheduledStartTime = "Desde"
+    override val scheduledEndTime = "Hasta"
+    override val scheduledSummary = "Los pasos aumentan gradualmente durante este horario y llegan al objetivo al final. Se repite cada día."
+    override val scheduledNextDayHint = "Si la hora final es anterior a la inicial, el horario continúa al día siguiente."
     override fun jitter(n: Int) = "Variación aleatoria de pasos: $n%"
     override val minLimit = "Cantidad mínima de pasos"
     override val maxLimit = "Cantidad máxima de pasos (-1 = sin límite)"

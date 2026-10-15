@@ -1,5 +1,7 @@
 package com.stepphantom.ui
 
+import android.app.TimePickerDialog
+import android.text.format.DateFormat as AndroidDateFormat
 import androidx.compose.foundation.Image
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
@@ -20,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -27,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.stepphantom.config.PackageConfig
 import com.stepphantom.config.TransformMode
+import java.time.LocalDate
 import java.util.Locale
 
 @Composable
@@ -176,7 +180,14 @@ fun PackageConfigScreen(vm: MainViewModel, pkg: String) {
             Text(s.mode, style = MaterialTheme.typography.titleMedium)
             TransformMode.values().forEach { m ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = cfg.mode == m, onClick = { vm.updatePackage(pkg) { c -> c.copy(mode = m) } })
+                    RadioButton(selected = cfg.mode == m, onClick = {
+                        vm.updatePackage(pkg) { c ->
+                            val anchor = if (m == TransformMode.OBJETIVO_PROGRAMADO && c.scheduledAnchorEpochDay < 0L) {
+                                LocalDate.now().toEpochDay()
+                            } else c.scheduledAnchorEpochDay
+                            c.copy(mode = m, scheduledAnchorEpochDay = anchor)
+                        }
+                    })
                     Text(modeLabel(s, m))
                 }
             }
@@ -216,6 +227,23 @@ fun PackageConfigScreen(vm: MainViewModel, pkg: String) {
                     Text(s.customPatternHint, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                TransformMode.OBJETIVO_PROGRAMADO -> {
+                    NumberFieldLong(s.scheduledGoal, cfg.scheduledGoalSteps) { v ->
+                        vm.updatePackage(pkg) { it.copy(scheduledGoalSteps = v.coerceAtLeast(0L)) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TimePickerField(s.scheduledStartTime, cfg.scheduledStartMinute, Modifier.weight(1f)) { v ->
+                            vm.updatePackage(pkg) { it.copy(scheduledStartMinute = v) }
+                        }
+                        TimePickerField(s.scheduledEndTime, cfg.scheduledEndMinute, Modifier.weight(1f)) { v ->
+                            vm.updatePackage(pkg) { it.copy(scheduledEndMinute = v) }
+                        }
+                    }
+                    Text(s.scheduledSummary, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(s.scheduledNextDayHint, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
 
@@ -247,7 +275,8 @@ fun PackageConfigScreen(vm: MainViewModel, pkg: String) {
                             vm.updatePackage(pkg) { it.copy(multiplier = v) }
                         }
                     }
-                    if (cfg.mode != TransformMode.RITMO_SIMULADO && cfg.mode != TransformMode.PERSONALIZADO) {
+                    if (cfg.mode != TransformMode.RITMO_SIMULADO && cfg.mode != TransformMode.PERSONALIZADO &&
+                        cfg.mode != TransformMode.OBJETIVO_PROGRAMADO) {
                         NumberFieldInt(s.stepsPerMinute, cfg.stepsPerMinute) { v ->
                             vm.updatePackage(pkg) { it.copy(stepsPerMinute = v) }
                         }
@@ -331,6 +360,35 @@ fun NumberFieldFloat(label: String, value: Float, onValue: (Float) -> Unit) {
     )
 }
 
+@Composable
+private fun TimePickerField(label: String, minuteOfDay: Int, modifier: Modifier = Modifier, onValue: (Int) -> Unit) {
+    val context = LocalContext.current
+    val hour = minuteOfDay.coerceIn(0, 1439) / 60
+    val minute = minuteOfDay.coerceIn(0, 1439) % 60
+    val timeText = remember(minuteOfDay, context) {
+        val calendar = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, hour)
+            set(java.util.Calendar.MINUTE, minute)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        AndroidDateFormat.getTimeFormat(context).format(calendar.time)
+    }
+    OutlinedButton(
+        onClick = {
+            TimePickerDialog(context, { _, selectedHour, selectedMinute ->
+                onValue(selectedHour * 60 + selectedMinute)
+            }, hour, minute, AndroidDateFormat.is24HourFormat(context)).show()
+        },
+        modifier = modifier
+    ) {
+        Column(horizontalAlignment = Alignment.Start) {
+            Text(label, style = MaterialTheme.typography.labelSmall)
+            Text(timeText, style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
 private fun modeLabel(s: Strings, m: TransformMode): String = when (m) {
     TransformMode.ORIGINAL -> s.modeOriginal
     TransformMode.SUMAR -> s.modeAdd
@@ -338,4 +396,5 @@ private fun modeLabel(s: Strings, m: TransformMode): String = when (m) {
     TransformMode.REEMPLAZAR -> s.modeReplace
     TransformMode.RITMO_SIMULADO -> s.modeRhythm
     TransformMode.PERSONALIZADO -> s.modeCustom
+    TransformMode.OBJETIVO_PROGRAMADO -> s.modeScheduledGoal
 }

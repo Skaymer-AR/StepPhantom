@@ -14,7 +14,8 @@ enum class TransformMode {
     MULTIPLICAR,     // round(real * multiplier)
     REEMPLAZAR,      // valor objetivo fijo (p.ej. 87)
     RITMO_SIMULADO,  // initialSteps + minutosActivos * stepsPerMinute
-    PERSONALIZADO    // combina mult + offset + inicial + ritmo + límites + jitter
+    PERSONALIZADO,   // combina mult + offset + inicial + ritmo + límites + jitter
+    OBJETIVO_PROGRAMADO // alcanza una meta diaria dentro de una franja horaria
 }
 
 /**
@@ -33,6 +34,11 @@ data class PackageConfig(
     val stepsPerMinute: Int = 100,
     val initialSteps: Long = 0L,
     val jitterPercent: Float = 0f,
+
+    val scheduledGoalSteps: Long = 7_000L,
+    val scheduledStartMinute: Int = 16 * 60,
+    val scheduledEndMinute: Int = 20 * 60,
+    val scheduledAnchorEpochDay: Long = -1L,
 
     val minLimit: Long = 0L,
     val maxLimit: Long = -1L,     // -1 = sin límite superior
@@ -58,6 +64,10 @@ data class PackageConfig(
         put("stepsPerMinute", stepsPerMinute)
         put("initialSteps", initialSteps)
         put("jitterPercent", jitterPercent.toDouble())
+        put("scheduledGoalSteps", scheduledGoalSteps)
+        put("scheduledStartMinute", scheduledStartMinute)
+        put("scheduledEndMinute", scheduledEndMinute)
+        put("scheduledAnchorEpochDay", scheduledAnchorEpochDay)
         put("minLimit", minLimit)
         put("maxLimit", maxLimit)
         put("paused", paused)
@@ -82,6 +92,10 @@ data class PackageConfig(
                 stepsPerMinute = o.optInt("stepsPerMinute", 100),
                 initialSteps = o.optLong("initialSteps", 0L),
                 jitterPercent = o.optDouble("jitterPercent", 0.0).toFloat(),
+                scheduledGoalSteps = o.optLong("scheduledGoalSteps", 7_000L).coerceAtLeast(0L),
+                scheduledStartMinute = o.optInt("scheduledStartMinute", 16 * 60).coerceIn(0, 1439),
+                scheduledEndMinute = o.optInt("scheduledEndMinute", 20 * 60).coerceIn(0, 1439),
+                scheduledAnchorEpochDay = o.optLong("scheduledAnchorEpochDay", -1L),
                 minLimit = o.optLong("minLimit", 0L),
                 maxLimit = o.optLong("maxLimit", -1L),
                 paused = o.optBoolean("paused", false),

@@ -18,13 +18,13 @@ import java.util.concurrent.atomic.AtomicLong
  * Envuelve el SensorEventListener original.
  *
  * TYPE_STEP_COUNTER: transforma event.values[0] EN EL LUGAR (una sola vez) según
- *   la config del paquete y lo delega. Para REEMPLAZAR/RITMO_SIMULADO además
+ *   la config del paquete y lo delega. Para REEMPLAZAR/RITMO_SIMULADO/OBJETIVO_PROGRAMADO además
  *   corre un scheduler que EMPUJA valores aunque no haya pasos reales (si estás
  *   quieto, el sensor real no dispara). Empujar requiere fabricar SensorEvent
  *   (experimental, ver SensorEventFactory).
  *
- * TYPE_STEP_DETECTOR: deja pasar los eventos reales; en RITMO_SIMULADO emite
- *   además eventos discretos 1.0f a la cadencia configurada.
+ * TYPE_STEP_DETECTOR: deja pasar los eventos reales; los modos simulados también
+ *   emiten eventos discretos 1.0f sincronizados con el contador.
  *
  * Acelerómetro/giroscopio: experimentales, sólo si el paquete los habilita;
  *   si no, passthrough intacto.
@@ -103,7 +103,10 @@ class SensorListenerWrapper(
                         }
                     }
                 }
-                Sensor.TYPE_STEP_DETECTOR -> deliverOriginal(event)
+                Sensor.TYPE_STEP_DETECTOR -> {
+                    // El detector real sumaría pasos ajenos al objetivo configurado.
+                    if (cfg.mode != TransformMode.OBJETIVO_PROGRAMADO) deliverOriginal(event)
+                }
                 Sensor.TYPE_ACCELEROMETER -> {
                     if (cfg.simAccelerometer) engine.fillAccelerometer(pkg, cfg, event.values)
                     deliverOriginal(event)
@@ -166,9 +169,16 @@ class SensorListenerWrapper(
             when (sensor.type) {
                 Sensor.TYPE_STEP_COUNTER -> deliverSyntheticCounter(sensor, cfg)
                 Sensor.TYPE_STEP_DETECTOR -> {
-                    if (cfg.mode != TransformMode.RITMO_SIMULADO && cfg.mode != TransformMode.PERSONALIZADO) return
-                    if (cfg.paused || cfg.stepsPerMinute <= 0) return
-                    pushEvent(sensor, 1.0f)
+                    when (cfg.mode) {
+                        TransformMode.OBJETIVO_PROGRAMADO -> {
+                            if (engine.shouldEmitScheduledDetectorStep(pkg, cfg)) pushEvent(sensor, 1.0f)
+                        }
+                        TransformMode.RITMO_SIMULADO, TransformMode.PERSONALIZADO -> {
+                            if (cfg.paused || cfg.stepsPerMinute <= 0) return
+                            pushEvent(sensor, 1.0f)
+                        }
+                        else -> return
+                    }
                 }
             }
         } catch (t: Throwable) {
@@ -178,7 +188,8 @@ class SensorListenerWrapper(
 
     private fun deliverSyntheticCounter(sensor: Sensor, cfg: PackageConfig) {
         if (!cfg.enabled || !cfg.hookSensorManager || !engine.needsScheduler(cfg)) return
-        if ((cfg.mode == TransformMode.RITMO_SIMULADO || cfg.mode == TransformMode.PERSONALIZADO) && cfg.paused) return
+        if ((cfg.mode == TransformMode.RITMO_SIMULADO || cfg.mode == TransformMode.PERSONALIZADO ||
+                cfg.mode == TransformMode.OBJETIVO_PROGRAMADO) && cfg.paused) return
 
         val fake = engine.syntheticCounter(pkg, cfg)
         if (lastCounterValue.get() == fake) return
